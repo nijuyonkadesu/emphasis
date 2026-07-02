@@ -185,7 +185,50 @@ def map_stress_index(phonetic_idx, phonetic_count, ortho_count):
     idx = round(ratio * (ortho_count - 1))
     return max(0, min(ortho_count - 1, idx))
 
-def stress_positions_for_pron(pron, ortho_count):
+STRESS_BEARING_PREFIXES = (
+    "anti", "multi", "non", "semi", "auto", "inter", "super", "ultra",
+    "counter", "pseudo", "quasi", "extra", "proto", "neo", "post", "pre",
+    "over", "under", "sub", "co",
+)
+
+def _collapse_secondary_clashes(secondary, primary, word=""):
+    """CMUdict marks vowel reduction, not strictly rhythmic prominence, so it
+    can mark several adjacent non-primary syllables as level-2 in a row.
+    Two distinct real phenomena produce this:
+
+    1. Stress-bearing prefixes (anti-, multi-, non-...) keep their OWN fixed
+       stress no matter where the primary stress later falls -- this is a
+       lexical fact about the prefix, not a rhythmic effect. If the word
+       starts with one of these and syllable 0 is in the clash, syllable 0
+       wins (verified against anticancer/AN, antidepressants/AN, multinational/MUL).
+
+    2. Otherwise (plain suffix-driven stress shift, e.g. exploitation,
+       acceleration, absolutism), English rhythmic alternation means the real
+       secondary beat sits an EVEN number of syllables from the primary;
+       verified against acceleration/CEL, exploitation/EX, absolutism/LU.
+    """
+    if len(secondary) <= 1:
+        return set(secondary)
+    has_prefix = any(word.lower().startswith(p) for p in STRESS_BEARING_PREFIXES)
+    ordered = sorted(secondary)
+    clusters, cur = [], [ordered[0]]
+    for x in ordered[1:]:
+        if x == cur[-1] + 1:
+            cur.append(x)
+        else:
+            clusters.append(cur)
+            cur = [x]
+    clusters.append(cur)
+    kept = set()
+    for cluster in clusters:
+        if has_prefix and 0 in cluster:
+            kept.add(0)
+            continue
+        even = [i for i in cluster if (primary - i) % 2 == 0]
+        kept |= set(even) if even else {max(cluster, key=lambda i: abs(i - primary))}
+    return kept
+
+def stress_positions_for_pron(pron, ortho_count, word=""):
     """Given an ARPAbet pronunciation (list of phonemes) and the number of
     written syllables, return (primary_idx, set_of_secondary_idx) in
     orthographic-syllable space."""
@@ -195,6 +238,7 @@ def stress_positions_for_pron(pron, ortho_count):
         return 0, set()
     primary = stresses.index("1") if "1" in stresses else 0
     secondary = [i for i, s in enumerate(stresses) if s == "2"]
+    secondary = _collapse_secondary_clashes(secondary, primary, word)
     primary_ortho = map_stress_index(primary, phonetic_count, ortho_count)
     secondary_ortho = {map_stress_index(i, phonetic_count, ortho_count) for i in secondary}
     secondary_ortho.discard(primary_ortho)
@@ -283,7 +327,7 @@ def resolve_word(raw, tag, sent_tags_after):
         phonetic_n = sum(1 for p in variant if p[-1].isdigit())
         ortho = syllabify(raw, min_syllables=phonetic_n)
         r.syllables = ortho
-        primary, secondary = stress_positions_for_pron(variant, len(ortho))
+        primary, secondary = stress_positions_for_pron(variant, len(ortho), lower)
         r.primary, r.secondary, r.confidence = primary, secondary, "dict-pos-resolved"
         return r
 
@@ -294,7 +338,7 @@ def resolve_word(raw, tag, sent_tags_after):
         phonetic_n = sum(1 for p in pron if p[-1].isdigit())
         ortho = syllabify(raw, min_syllables=phonetic_n)
         r.syllables = ortho
-        primary, secondary = stress_positions_for_pron(pron, len(ortho))
+        primary, secondary = stress_positions_for_pron(pron, len(ortho), lower)
         r.primary, r.secondary = primary, secondary
         # Only flag genuine ambiguity: multiple variants that disagree on
         # WHERE the primary stress falls (ignore variants with no primary
@@ -322,7 +366,7 @@ def resolve_word(raw, tag, sent_tags_after):
         r.primary, r.confidence = 0, ("dict" if phonetic_n <= 1 else "predicted")
         return r
 
-    primary, secondary = stress_positions_for_pron(phones, len(ortho))
+    primary, secondary = stress_positions_for_pron(phones, len(ortho), lower)
     r.primary, r.secondary, r.confidence = primary, secondary, "predicted"
     return r
 

@@ -17,7 +17,7 @@ spaCy" below.
 
 ## Usage
 
-```sh
+```
 python3 stressmark.py transcript.txt
 cat article.txt | python3 stressmark.py
 python3 stressmark.py transcript.txt --format html -o out.html
@@ -99,6 +99,24 @@ a final answer.
   irregular, historically-derived English spelling (Cholmondeley-class
   words). No G2P system handles these well — the correct pronunciation is
   lexically arbitrary, not predictable from spelling.
+- **CMUdict sometimes marks two adjacent syllables as secondary stress**
+  in a row (it tracks vowel reduction, not strictly rhythmic prominence).
+  This is corrected for: stress-bearing prefixes (anti-, multi-, non-...)
+  keep their own fixed stress; otherwise the real secondary beat is chosen
+  by rhythmic alternation (an even number of syllables from the primary).
+  Verified against exploitation/EX, acceleration/CEL, absolutism/LU,
+  antidepressants/AN, multinational/MUL — see `test_secondary_stress.py`.
+- **CMUdict and pedagogical/textbook IPA sometimes disagree on whether a
+  syllable carries secondary stress at all** — not a clash to resolve, a
+  genuine difference in convention. Example: CMUdict marks the final
+  syllable of "apocalypse" (-lypse) as non-reduced (level 2); many
+  textbook sources mark the word with no secondary stress at all. CMUdict
+  is tracking vowel reduction; your textbook is tracking rhythmic
+  prominence. Both are internally consistent, they're just answering
+  slightly different questions. This build follows CMUdict's actual
+  encoding rather than silently overriding it, since "silently make it
+  match what I assume you want" is a worse failure mode than "tell you
+  plainly where the two systems diverge."
 - **Only one CMUdict pronunciation variant is used** for ordinary (non-
   heteronym) words with multiple dialectal/allophonic variants — the tool
   doesn't pick a variant by regional accent.
@@ -109,8 +127,10 @@ a final answer.
 - **Compound-adjective detection (Rule 9) only catches hyphenated tokens**
   tagged as adjectives. Open (non-hyphenated) compound adjectives aren't
   detected.
-- **Secondary stress follows CMUdict's own convention**, which doesn't
-  always agree with other dictionaries at the margins.
+- **Orthographic syllable boundaries can land one consonant off** at
+  cluster edges (e.g. "alcoholism" splits as "al-co-ho-lism" rather than
+  "al-co-hol-ism") — the chosen stress *position* is still correct, just
+  the displayed substring can be a letter short. Cosmetic, not positional.
 - **The heteronym table is hand-curated and finite** (20 common pairs).
   `find_heteronym_candidates()` in `stressmark_engine.py` will surface
   more candidates mechanically from CMUdict if you want to extend it —
@@ -123,5 +143,6 @@ a final answer.
 - `stressmark_render.py` — terminal / HTML / JSON renderers
 - `test_engine.py` — exercises every rule and feature
 - `test_heteronyms.py` — heteronym resolution accuracy test
+- `test_secondary_stress.py` — secondary-stress clash-collapse accuracy test
 - `benchmark_g2p.py` — G2P accuracy benchmark (see the caveat above about
   what this number does and doesn't tell you)
