@@ -34,6 +34,8 @@ def main():
                          help="Annotate words with which of the 9 stress rules applied.")
     parser.add_argument("--flag-heteronyms", action="store_true",
                          help="Mark words whose stress depends on part of speech (record/object/...).")
+    parser.add_argument("--nuclear-only", action="store_true",
+                         help="Only highlight the nuclear (focus) word per clause; demote all other content words to secondary/unstressed.")
     args = parser.parse_args()
 
     if args.input:
@@ -43,7 +45,7 @@ def main():
         text = sys.stdin.read()
 
     render.set_heteronym_words(HETERONYMS.keys())
-    raw_tokens, results = analyze(text)
+    raw_tokens, results = analyze(text, nuclear_only=args.nuclear_only)
 
     if args.format == "terminal":
         if args.output:

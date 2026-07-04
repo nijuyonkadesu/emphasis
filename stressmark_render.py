@@ -52,15 +52,18 @@ def render_terminal(raw_tokens, results, show_rules=False, flag_heteronyms=False
             continue
 
         sylls = res.syllables
-        is_nuclear = res.tier == "nuclear"
         conf = res.confidence
         for i, s in enumerate(sylls):
             if s == "-":
                 text.append("-")
                 continue
             if i == res.primary:
-                if is_nuclear:
+                if res.tier == "nuclear":
                     style = "bold reverse yellow"
+                elif res.tier == "prominent":
+                    style = "bold yellow"
+                elif res.tier == "pre-nuclear":
+                    style = "bold yellow3"
                 elif conf == "predicted":
                     style = "bold italic yellow3"
                 elif conf == "dict-flagged":
@@ -84,9 +87,12 @@ def render_terminal(raw_tokens, results, show_rules=False, flag_heteronyms=False
     if owns_console:
         console.print()
         console.print(
-            "[bold yellow]CAPS[/bold yellow]=primary  [underline]underline[/underline]=secondary  "
-            "[dim]dim[/dim]=unstressed/reduced  [reverse]reverse[/reverse]=nuclear (loudest in clause)  "
-            "[yellow3]\u2248[/yellow3]=predicted, not in dictionary  [red]\u26a0[/red]=ambiguous in dictionary",
+            "[bold reverse yellow]REVERSE[/bold reverse yellow]=nuclear  "
+            "[bold yellow]CAPS[/bold yellow]=prominent  "
+            "[bold yellow3]CAPS[/bold yellow3]=pre-nuclear  "
+            "[underline]underline[/underline]=secondary  "
+            "[dim]dim[/dim]=given/reduced  "
+            "[yellow3]\u2248[/yellow3]=predicted  [red]\u26a0[/red]=ambiguous",
             style="dim",
         )
 
@@ -112,6 +118,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .unstressed{{ color:#8C8674; }}
   .reduced{{ color:#5C5848; }}
   .primary{{ color:#E7A23B; font-weight:600; border-bottom:2px solid #E7A23B; }}
+  .prominent{{ color:#E7A23B; font-weight:700; border-bottom:2px solid #E7A23B; }}
+  .pre-nuclear{{ color:#D4A843; font-weight:600; border-bottom:2px solid #D4A843; opacity:0.9; }}
   .secondary{{ color:#E7A23B; opacity:0.75; border-bottom:1px dotted #E7A23B; }}
   .nuclear{{ color:#FFC25C; font-weight:700; border-bottom:3px solid #FFC25C;
             text-shadow:0 0 14px rgba(255,194,92,.45); }}
@@ -124,12 +132,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 </style></head><body>
 <div class="output">{body}</div>
 <div class="legend">
-  <span class="primary">CAPS</span>primary &nbsp;
+  <span class="nuclear">CAPS</span>nuclear (IP focus) &nbsp;
+  <span class="prominent">CAPS</span>prominent (contrast/wh/early) &nbsp;
+  <span class="pre-nuclear">CAPS</span>pre-nuclear (new info) &nbsp;
   <span class="secondary">low</span>secondary &nbsp;
-  <span class="nuclear">CAPS</span>nuclear (clause-loudest) &nbsp;
-  <span class="reduced">low</span>unstressed/reduced &nbsp;
-  <span class="predicted">dashed</span>predicted, not in dictionary &nbsp;
-  <span class="flagged">orange</span>ambiguous in dictionary
+  <span class="reduced">low</span>given/reduced &nbsp;
+  <span class="predicted">dashed</span>predicted &nbsp;
+  <span class="flagged">orange</span>ambiguous
 </div>
 </body></html>
 """
@@ -146,7 +155,6 @@ def render_html(raw_tokens, results, show_rules=False):
             parts.append(f'<span class="reduced">{htmlmod.escape(txt.lower())}</span>')
             continue
         sylls = res.syllables
-        is_nuclear = res.tier == "nuclear"
         conf = res.confidence
         word_html = ""
         for i, s in enumerate(sylls):
@@ -154,7 +162,14 @@ def render_html(raw_tokens, results, show_rules=False):
                 word_html += "-"
                 continue
             if i == res.primary:
-                cls = "nuclear" if is_nuclear else "primary"
+                if res.tier == "nuclear":
+                    cls = "nuclear"
+                elif res.tier == "prominent":
+                    cls = "prominent"
+                elif res.tier == "pre-nuclear":
+                    cls = "pre-nuclear"
+                else:
+                    cls = "primary"
                 if conf == "predicted":
                     cls += " predicted"
                 if conf == "dict-flagged":

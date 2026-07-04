@@ -31,30 +31,30 @@ _cmu = cmudict.dict()
 _g2p = G2p()
 
 # ---------------------------------------------------------------------------
+# Prominence tiers (AM theory + information structure)
+# nuclear > prominent > compressed > given > reduced
+# ---------------------------------------------------------------------------
+TIER_ORDER = ["nuclear", "prominent", "compressed", "given", "reduced", "suppressed"]
+
+# Focus particles that trigger contrastive focus on their associate
+FOCUS_PARTICLES = {"only", "even", "just", "also", "alone", "merely", "simply",
+                    "exactly", "precisely", "specifically", "particularly",
+                    "especially", "mostly", "mainly", "largely"}
+
+# Contrast markers
+CONTRAST_MARKERS = {"not", "but", "however", "instead", "rather", "on the contrary"}
+
+# Discourse markers that often signal IP boundaries
+DISCOURSE_MARKERS = {"however", "therefore", "moreover", "furthermore", "nevertheless",
+                      "meanwhile", "consequently", "thus", "hence", "indeed", "actually",
+                      "basically", "essentially", "frankly", "honestly", "obviously"}
+
+# ---------------------------------------------------------------------------
 # Heteronyms: words whose stress pattern depends on part of speech.
 # Auto-detected from CMUdict (any word with >1 stress-distinct pronunciation),
 # then hand-resolved: which variant is the noun reading, which is the verb.
 # ---------------------------------------------------------------------------
 
-def _stress_seq(pron):
-    return tuple(p[-1] for p in pron if p[-1].isdigit())
-
-def find_heteronym_candidates():
-    """Scan CMUdict for words with multiple pronunciations that differ in
-    stress pattern (not just phoneme quality). Returns {word: [stress_seqs]}"""
-    out = {}
-    for w, prons in _cmu.items():
-        if not re.match(r"^[a-z]+$", w):
-            continue
-        seqs = {_stress_seq(p) for p in prons}
-        if len(seqs) > 1:
-            out[w] = prons
-    return out
-
-# Hand-resolved: word -> {"noun": pron_index, "verb": pron_index} into _cmu[word]
-# Verified against published English heteronym lists. Only common, unambiguous
-# cases are listed; anything else found by find_heteronym_candidates() but not
-# listed here gets surfaced with a warning instead of guessed.
 HETERONYMS = {
     "record":   {"noun": ['R','EH1','K','ER0','D'],         "verb": ['R','IH0','K','AO1','R','D']},
     "object":   {"noun": ['AA1','B','JH','EH0','K','T'],     "verb": ['AH0','B','JH','EH1','K','T']},
@@ -397,7 +397,7 @@ def tokenize_with_spans(text):
         tokens.append((False, text[pos:]))
     return tokens
 
-def analyze(text):
+def analyze(text, nuclear_only=False):
     raw_tokens = tokenize_with_spans(text)
     word_indices = [i for i, (isw, _) in enumerate(raw_tokens) if isw]
     words_only = [raw_tokens[i][1] for i in word_indices]
@@ -460,55 +460,203 @@ def analyze(text):
             res.confidence = "rule-9"
             res.rule = 9
 
-    # --- nuclear stress + given/repeat pass, scoped per clause ---
-    seen = set()
-    clause_word_idxs = []
+    # -------------------------------------------------------------------------
+    # Prominence assignment: multi-level, information-structure aware
+    # -------------------------------------------------------------------------
+    # Tiers (most to least prominent):
+    #   nuclear        - nuclear pitch accent (IP-final new/contrastive)
+    #   prominent      - early ip-initial, contrastive focus, wh-correspondent
+    #   pre-nuclear    - regular new information, compressed
+    #   given          - de-accented (old information)
+    #   suppressed     - compound tail, weak function words
+    #   reducible      - fully reduced function words
+    #
+    # Information status per discourse referent:
+    #   new        - first mention
+    #   contrastive - explicit contrast / correction / focus particle associate
+    #   accessible - inferrable from context (bridging)
+    #   given      - explicitly mentioned
+    # -------------------------------------------------------------------------
 
-    def finalize(clause_idxs):
-        contentish = [i for i in clause_idxs if results[i].cls in ("content", "compound-adj")]
-        if not contentish:
-            return
-        nuclear_i = contentish[-1]
-        for i in reversed(contentish):
-            lw = raw_tokens[i][1].lower()
-            if lw in HETERONYMS or lw not in seen:
-                nuclear_i = i
-                break
-        for i in contentish:
-            lw = raw_tokens[i][1].lower()
-            if i == nuclear_i:
-                results[i].tier = "nuclear"
-            elif lw not in HETERONYMS and lw in seen:
-                results[i].tier = "given"
+    # Track information status per lemma (across full text, not per clause)
+    info_status = {}  # lemma -> "new" | "contrastive" | "accessible" | "given"
+
+    # Detect contrastive patterns and focus particles in the whole text
+    contrastive_lemmas = set()
+    focus_particle_associates = set()  # word after only/even/just/also
+
+    # Scan for contrast patterns: "not X but Y", "not only X but Y", "X not Y"
+    # and focus particles: "only X", "even X", "just X", "also X"
+    for i, (isw, txt) in enumerate(raw_tokens):
+        if not isw:
+            continue
+        lw = txt.lower()
+        # Focus particles
+        if lw in ("only", "even", "just", "also", "merely", "simply"):
+            # Next content word is the associate
+            for j in range(i + 1, len(raw_tokens)):
+                if raw_tokens[j][0] and results[j].cls in ("content", "compound-adj"):
+                    focus_particle_associates.add(raw_tokens[j][1].lower())
+                    break
+        # Contrast: "not X but Y"
+        if lw == "not":
+            # Look for "but" ahead
+            for j in range(i + 1, min(i + 8, len(raw_tokens))):
+                if raw_tokens[j][0] and raw_tokens[j][1].lower() == "but":
+                    # Word after "but" is contrastive
+                    for k in range(j + 1, min(j + 4, len(raw_tokens))):
+                        if raw_tokens[k][0] and results[k].cls in ("content", "compound-adj"):
+                            contrastive_lemmas.add(raw_tokens[k][1].lower())
+                    break
+                if raw_tokens[j][0] and results[j].cls in ("content", "compound-adj"):
+                    # Word after "not" is contrastive (negated focus)
+                    contrastive_lemmas.add(raw_tokens[j][1].lower())
+                    break
+
+    # Split into intonation phrases (IPs) - roughly clauses
+    # Within each IP, split into intermediate phrases (ips) at strong boundaries
+    IP_BOUNDARY = re.compile(r"[.!?;:]")
+    IP_BOUNDARY = re.compile(r"[,.]")  # weaker, for ip boundaries
+
+    def split_into_ips(indices):
+        """Split word indices into intonation phrases."""
+        ips = []
+        current = []
+        for idx in indices:
+            current.append(idx)
+            # Check for IP boundary after this word
+            sep = ""
+            idx_in_list = word_indices.index(idx)
+            if idx_in_list + 1 < len(word_indices):
+                nxt = word_indices[idx_in_list + 1]
+                sep = "".join(raw_tokens[k][1] for k in range(idx + 1, nxt) if not raw_tokens[k][0])
             else:
-                results[i].tier = "secondary"
-        for i in contentish:
-            lw = raw_tokens[i][1].lower()
-            if lw not in HETERONYMS:
-                seen.add(lw)
+                sep = "".join(raw_tokens[k][1] for k in range(idx + 1, len(raw_tokens)) if not raw_tokens[k][0])
+            if IP_BOUNDARY.search(sep):
+                ips.append(current)
+                current = []
+        if current:
+            ips.append(current)
+        return ips
 
+    def split_into_ips_internal(ip_indices):
+        """Split an IP into intermediate phrases (ips) at commas, heavy NPs, etc."""
+        iphs = []
+        current = []
+        for idx in ip_indices:
+            current.append(idx)
+            # Check for ip boundary after this word
+            sep = ""
+            idx_in_list = word_indices.index(idx)
+            if idx_in_list + 1 < len(word_indices):
+                nxt = word_indices[idx_in_list + 1]
+                sep = "".join(raw_tokens[k][1] for k in range(idx + 1, nxt) if not raw_tokens[k][0])
+            # ip boundary at commas, or after heavy subject NP, or discourse markers
+            if IP_BOUNDARY.search(sep):
+                iphs.append(current)
+                current = []
+            # Also check for discourse markers that start new ip
+            lw = raw_tokens[idx][1].lower()
+            if lw in ("however", "therefore", "moreover", "furthermore", "nevertheless",
+                       "meanwhile", "consequently", "accordingly", "thus", "hence"):
+                if current:
+                    iphs.append(current)
+                    current = []
+        if current:
+            iphs.append(current)
+        return iphs
+
+    # Process each intonation phrase
+    ip_word_indices = split_into_ips(word_indices)
+
+    for ip_indices in ip_word_indices:
+        if not ip_indices:
+            continue
+        # Split IP into intermediate phrases
+        iphs = split_into_ips_internal(ip_indices)
+
+        # Process each intermediate phrase
+        for iph_idx, iph in enumerate(iphs):
+            if not iph:
+                continue
+            contentish = [i for i in iph if results[i].cls in ("content", "compound-adj")]
+            if not contentish:
+                continue
+
+            # Determine nuclear position: rightmost non-given, or contrastive, or focus associate
+            nuclear_i = contentish[-1]
+            # Check for contrastive or focus associate in this iph (rightmost wins)
+            for i in reversed(contentish):
+                lw = raw_tokens[i][1].lower()
+                if lw in contrastive_lemmas or lw in focus_particle_associates:
+                    nuclear_i = i
+                    break
+            # Otherwise rightmost new/accessible
+            for i in reversed(contentish):
+                lw = raw_tokens[i][1].lower()
+                status = info_status.get(lw, "new")
+                if status in ("new", "contrastive", "accessible"):
+                    nuclear_i = i
+                    break
+
+            # Assign tiers within this iph
+            for pos, i in enumerate(contentish):
+                lw = raw_tokens[i][1].lower()
+                status = info_status.get(lw, "new")
+
+                if i == nuclear_i:
+                    # Nuclear accent - most prominent
+                    results[i].tier = "nuclear"
+                    # Update status: after nuclear mention, becomes given
+                    info_status[lw] = "given"
+                elif lw in contrastive_lemmas or lw in focus_particle_associates:
+                    # Contrastive focus / focus particle associate - prominent pre-nuclear
+                    results[i].tier = "prominent"
+                    info_status[lw] = "given"  # mentioned now
+                elif status == "given":
+                    # Already mentioned - de-accented
+                    results[i].tier = "given"
+                elif status == "accessible":
+                    # Inferrable - compressed pre-nuclear
+                    results[i].tier = "pre-nuclear"
+                    info_status[lw] = "given"
+                else:
+                    # New information
+                    # Early in iph (first 1-2 content words) can be prominent if iph-initial
+                    if pos <= 1 and iph_idx == 0:
+                        results[i].tier = "prominent"
+                    else:
+                        results[i].tier = "pre-nuclear"
+                    info_status[lw] = "given"
+
+    # Apply rhythmic clash avoidance: demote if two prominent accents adjacent
+    # (stress clash resolution - English avoids adjacent strong beats)
+    prev_prominent = False
     for i in word_indices:
-        clause_word_idxs.append(i)
-        sep_after = ""
-        idx_in_list = word_indices.index(i)
-        if idx_in_list + 1 < len(word_indices):
-            nxt = word_indices[idx_in_list + 1]
-            sep_after = "".join(raw_tokens[k][1] for k in range(i + 1, nxt) if not raw_tokens[k][0])
-        else:
-            sep_after = "".join(raw_tokens[k][1] for k in range(i + 1, len(raw_tokens)) if not raw_tokens[k][0])
-        if CLAUSE_BOUNDARY.search(sep_after):
-            finalize(clause_word_idxs)
-            clause_word_idxs = []
-    finalize(clause_word_idxs)
+        res = results[i]
+        is_prominent = res.tier in ("nuclear", "prominent")
+        if is_prominent and prev_prominent:
+            # Clash: demote this one (not the nuclear)
+            if res.tier == "prominent":
+                res.tier = "pre-nuclear"
+        prev_prominent = is_prominent
 
-    # weak / compound-tail get a fixed tier
+    # Weak / compound-tail get fixed tiers
     for i in word_indices:
         if results[i].cls in ("weak",):
             results[i].tier = "secondary"
         if results[i].cls == "compound-tail":
             results[i].tier = "suppressed"
 
-    # rule explanation
+    # Pre-nuclear demotion mode (--nuclear-only): demote all non-nuclear
+    if nuclear_only:
+        for i in word_indices:
+            res = results[i]
+            if res.tier in ("pre-nuclear", "prominent") and res.primary >= 0:
+                res.secondary.add(res.primary)
+                res.primary = -1
+
+    # Rule explanation
     for i in word_indices:
         res = results[i]
         if res.cls in ("content", "weak") and res.primary >= 0:
