@@ -97,6 +97,47 @@ def render_terminal(raw_tokens, results, show_rules=False, flag_heteronyms=False
         )
 
 
+def render_word(result):
+    """Render one WordResult's stress-highlighted syllables as a Rich Text
+    object. Unlike render_terminal (which operates on a whole analyzed
+    document with a sentence-level nuclear-stress tiering pass), a
+    WordResult from resolve_word_by_pos() never has .tier set -- tiering
+    only happens in analyze()'s sentence-level pass -- so only
+    confidence-based styling applies here, not the tier-based styles
+    (nuclear/prominent/pre-nuclear)."""
+    from rich.text import Text
+
+    text = Text()
+    if result.cls == "reducible":
+        text.append(result.raw.lower(), style="dim")
+        return text
+
+    sylls = result.syllables
+    conf = result.confidence
+    for i, s in enumerate(sylls):
+        if s == "-":
+            text.append("-")
+            continue
+        if i == result.primary:
+            if conf == "predicted":
+                style = "bold italic yellow3"
+            elif conf == "dict-flagged":
+                style = "bold orange3"
+            else:
+                style = "bold yellow"
+            text.append(s.upper(), style=style)
+        elif i in result.secondary:
+            text.append(s.lower(), style="underline yellow3")
+        else:
+            text.append(s.lower(), style="grey62")
+
+    marker = _confidence_marker(conf)
+    if marker:
+        text.append(marker, style="bold red" if conf == "dict-flagged" else "yellow3")
+
+    return text
+
+
 _HETERONYM_WORDS = set()
 
 

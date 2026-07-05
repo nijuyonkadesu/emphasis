@@ -81,6 +81,13 @@ HETERONYMS = {
 NOUN_TAGS = {"NN", "NNS", "NNP", "NNPS"}
 VERB_TAGS = {"VB", "VBD", "VBG", "VBN", "VBP", "VBZ"}
 
+_POS_VOCAB_TO_TAG = {
+    "noun": "NN",
+    "verb": "VB",
+    "adjective": "JJ",
+    "adverb": "RB",
+}
+
 # ---------------------------------------------------------------------------
 # Word classification: reducible (fully suppressible function word) /
 # weak (function-class but keeps its own lexical stress) / content
@@ -369,6 +376,24 @@ def resolve_word(raw, tag, sent_tags_after):
     primary, secondary = stress_positions_for_pron(phones, len(ortho), lower)
     r.primary, r.secondary, r.confidence = primary, secondary, "predicted"
     return r
+
+
+def resolve_word_by_pos(word, pos):
+    """Resolve a single word's stress pattern given an ALREADY-KNOWN part of
+    speech, bypassing this module's own POS-tagging and heteronym-guessing
+    entirely. Intended for callers (like revdict) that already know the
+    correct sense-specific POS from their own dictionary data -- both
+    faster (no POS-tagger model needed for this path) and more accurate
+    (no context-free guessing on an isolated word, which is exactly where
+    heteronym resolution like record/object needs real context).
+
+    `pos` uses revdict's vocabulary ("noun"/"verb"/"adjective"/"adverb");
+    anything else (e.g. WordNet's "name" for proper nouns, or a raw
+    Wiktionary POS string) falls back to treating the word as a common
+    noun.
+    """
+    tag = _POS_VOCAB_TO_TAG.get(pos, "NN")
+    return resolve_word(word, tag, [])
 
 # ---------------------------------------------------------------------------
 # Sentence-level pass: tokenize, tag, classify, resolve, then apply
