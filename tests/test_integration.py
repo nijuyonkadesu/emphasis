@@ -1,5 +1,37 @@
-from stressmark.engine import resolve_word_by_pos
+from stressmark.engine import _POS_VOCAB_TO_TAG, resolve_word_by_pos
 from stressmark.render import render_word
+
+# The complete, real set of distinct `pos` values that appear in revdict's
+# built index metadata (extracted directly from a real built index, not
+# guessed) -- this is the actual input space revdict.models.stress.mark()
+# can ever call resolve_word_by_pos() with. A contract test against this
+# exact list catches drift between revdict's POS vocabulary and this
+# module's tag mapping at CI time instead of silently, someday.
+_REAL_REVDICT_POS_VALUES = [
+    "adjective", "adv_phrase", "adverb", "article", "character", "circumfix",
+    "conj", "contraction", "det", "infix", "interfix", "intj", "name", "noun",
+    "num", "particle", "phrase", "postp", "prefix", "prep", "prep_phrase",
+    "pron", "proverb", "punct", "suffix", "symbol", "verb",
+]
+
+
+def test_resolve_word_by_pos_never_raises_for_any_real_revdict_pos_value():
+    for pos in _REAL_REVDICT_POS_VALUES:
+        result = resolve_word_by_pos("record", pos)
+        render_word(result)  # must also render cleanly, not just resolve
+
+
+def test_resolve_word_by_pos_recognizes_exactly_the_four_revdict_pos_names():
+    # If revdict's normalization (WordNet's _POS_NAMES, Wiktionary's
+    # _POS_NORMALIZATION) or this module's _POS_VOCAB_TO_TAG ever drifts out
+    # of sync, this is the test that catches it -- it pins the exact four
+    # recognized keys and their Penn Treebank targets.
+    assert _POS_VOCAB_TO_TAG == {
+        "noun": "NN",
+        "verb": "VB",
+        "adjective": "JJ",
+        "adverb": "RB",
+    }
 
 
 def test_resolve_word_by_pos_resolves_heteronym_as_noun():
