@@ -8,7 +8,8 @@ tagging, not hand-written suffix-rule guesses.
 ## Install
 
 ```
-pip install -r requirements.txt
+uv sync --all-extras
+ln -sf "$(pwd)/.venv/bin/stressmark" ~/.local/bin/stressmark
 ```
 
 First run will auto-download the NLTK data it needs (CMU Pronouncing
@@ -18,12 +19,12 @@ spaCy" below.
 ## Usage
 
 ```
-python3 stressmark.py transcript.txt
-cat article.txt | python3 stressmark.py
-python3 stressmark.py transcript.txt --format html -o out.html
-python3 stressmark.py transcript.txt --format json -o out.json
-python3 stressmark.py transcript.txt --explain          # show which of the 9 rules applied
-python3 stressmark.py transcript.txt --flag-heteronyms  # mark record/object/export-type words
+stressmark transcript.txt
+cat article.txt | stressmark
+stressmark transcript.txt --format html -o out.html
+stressmark transcript.txt --format json -o out.json
+stressmark transcript.txt --explain          # show which of the 9 rules applied
+stressmark transcript.txt --flag-heteronyms  # mark record/object/export-type words
 ```
 
 Terminal output: 
@@ -138,11 +139,35 @@ a final answer.
 
 ## Files
 
-- `stressmark.py` — CLI entry point
-- `stressmark_engine.py` — the analysis pipeline
-- `stressmark_render.py` — terminal / HTML / JSON renderers
+- `src/stressmark/cli.py` — CLI entry point
+- `src/stressmark/engine.py` — the analysis pipeline; also exposes
+  `resolve_word_by_pos(word, pos)`, a single-word entry point for callers
+  that already know the correct part of speech (see "Used as a library"
+  below)
+- `src/stressmark/render.py` — terminal / HTML / JSON renderers; also
+  exposes `render_word(result)`, a single-word Rich `Text` renderer
 - `test_engine.py` — exercises every rule and feature
 - `test_heteronyms.py` — heteronym resolution accuracy test
 - `test_secondary_stress.py` — secondary-stress clash-collapse accuracy test
 - `benchmark_g2p.py` — G2P accuracy benchmark (see the caveat above about
   what this number does and doesn't tell you)
+- `tests/test_integration.py` — pytest coverage for the two library entry
+  points above
+
+## Used as a library
+
+`stressmark` is also installable as a plain Python package (`import
+stressmark.engine`, `import stressmark.render`) for callers that want a
+single word's stress pattern without running the whole sentence-level
+pipeline. `resolve_word_by_pos(word, pos)` skips this project's own
+POS-tagging/heteronym-guessing entirely — pass in a part of speech you
+already know (`"noun"/"verb"/"adjective"/"adverb"`) and it resolves
+directly, which is both faster and more accurate for an isolated word
+than re-guessing POS from no context. `render_word(result)` renders that
+single word's stress-highlighted syllables as a Rich `Text` object.
+
+The `revdict` project (a sibling local project) uses exactly this to show
+stress-marked pronunciation on dictionary lookups, entirely as an optional
+plugin — `stressmark` is not a declared dependency of `revdict`, so
+nothing about `revdict`'s own install is affected whether or not this
+project is present.
