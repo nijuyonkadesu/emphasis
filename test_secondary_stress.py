@@ -1,6 +1,4 @@
-import sys
-sys.path.insert(0, '/home/claude/stressmark')
-from stressmark_engine import resolve_word
+from stressmark.engine import resolve_word
 
 # CMUdict marks vowel reduction (full vs. schwa), not strictly rhythmic
 # prominence, so it sometimes marks two ADJACENT syllables as level-2 ("secondary")

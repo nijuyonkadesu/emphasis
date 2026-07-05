@@ -1,6 +1,4 @@
-import sys
-sys.path.insert(0, '/home/claude/stressmark')
-from stressmark_engine import analyze
+from stressmark.engine import analyze
 
 # (sentence, target_word, expected_primary_syllable_index)
 cases = [

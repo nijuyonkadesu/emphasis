@@ -1,6 +1,4 @@
-import sys
-sys.path.insert(0, '/home/claude/stressmark')
-from stressmark_engine import analyze
+from stressmark.engine import analyze
 
 def show(text):
     raw_tokens, results = analyze(text)

@@ -12,12 +12,9 @@ Usage:
 """
 import argparse
 import sys
-import os
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from stressmark_engine import analyze, HETERONYMS
-import stressmark_render as render
+from stressmark.engine import analyze, HETERONYMS
+from stressmark import render
 
 
 def main():
