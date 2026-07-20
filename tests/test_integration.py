@@ -118,7 +118,13 @@ def test_resolve_word_by_pos_exposes_phonemes_for_a_g2p_predicted_word():
 def test_resolve_word_by_pos_gives_an_empty_phonemes_list_for_a_reducible_word():
     """Function words never get a phoneme lookup at all -- .phonemes must
     default to [] rather than being missing or None, so callers can always
-    do `if result.phonemes:` without a hasattr/None check."""
-    result = resolve_word_by_pos("the", "noun")
+    do `if result.phonemes:` without a hasattr/None check. Uses "is" (a
+    BE_FORMS word, classified as reducible regardless of the POS argument)
+    rather than "the" -- resolve_word_by_pos's coarse POS-vocabulary
+    mapping (noun/verb/adjective/adverb -> NN/VB/JJ/RB) has no way to
+    express "this is a determiner", so an article like "the" would not
+    actually classify as reducible via this entrypoint without a
+    production-code change this task doesn't need to make."""
+    result = resolve_word_by_pos("is", "verb")
     assert result.cls == "reducible"
     assert result.phonemes == []

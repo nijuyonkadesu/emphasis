@@ -107,9 +107,6 @@ SCHWA_MAP = {
     "am": "əm", "some": "səm", "his": "ihz",
 }
 
-# Words that should always be classified as reducible, regardless of POS tag
-ALWAYS_REDUCIBLE = {"the", "a", "an"}
-
 def syllable_count(word):
     h = _dic.inserted(word.lower())
     return max(1, h.count("-") + 1)
@@ -118,8 +115,6 @@ def classify(word, tag, sent_tags_after, lower):
     """Return 'reducible' | 'weak' | 'content' for a word given its POS tag
     and the tags immediately following it within the same clause."""
     if CONTRACTION_FRAGMENT.match(word):
-        return "reducible"
-    if lower in ALWAYS_REDUCIBLE:
         return "reducible"
     if lower in BE_FORMS:
         return "reducible"
