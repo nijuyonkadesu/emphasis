@@ -107,6 +107,9 @@ SCHWA_MAP = {
     "am": "əm", "some": "səm", "his": "ihz",
 }
 
+# Words that should always be classified as reducible, regardless of POS tag
+ALWAYS_REDUCIBLE = {"the", "a", "an"}
+
 def syllable_count(word):
     h = _dic.inserted(word.lower())
     return max(1, h.count("-") + 1)
@@ -115,6 +118,8 @@ def classify(word, tag, sent_tags_after, lower):
     """Return 'reducible' | 'weak' | 'content' for a word given its POS tag
     and the tags immediately following it within the same clause."""
     if CONTRACTION_FRAGMENT.match(word):
+        return "reducible"
+    if lower in ALWAYS_REDUCIBLE:
         return "reducible"
     if lower in BE_FORMS:
         return "reducible"
@@ -304,6 +309,7 @@ class WordResult:
         self.cls = None
         self.tag = None
         self.compound_parts = None
+        self.phonemes = []
 
 def _primary_positions_with_one(prons):
     """Primary-stress index for each pronunciation variant that actually
@@ -336,6 +342,7 @@ def resolve_word(raw, tag, sent_tags_after):
         r.syllables = ortho
         primary, secondary = stress_positions_for_pron(variant, len(ortho), lower)
         r.primary, r.secondary, r.confidence = primary, secondary, "dict-pos-resolved"
+        r.phonemes = variant
         return r
 
     # --- plain dictionary lookup ---
@@ -354,6 +361,7 @@ def resolve_word(raw, tag, sent_tags_after):
         # there's nothing to disambiguate).
         primaries = set(_primary_positions_with_one(prons))
         r.confidence = "dict-flagged" if (len(ortho) > 1 and len(primaries) > 1) else "dict"
+        r.phonemes = pron
         return r
 
     # --- not in dictionary: consult G2P first to find the real phonetic
@@ -365,6 +373,7 @@ def resolve_word(raw, tag, sent_tags_after):
         phonetic_n = sum(1 for p in phones if p[-1].isdigit())
     except Exception:
         phones, phonetic_n = [], 1
+    r.phonemes = phones
 
     ortho = syllabify(raw, min_syllables=max(phonetic_n, 1))
     r.syllables = ortho

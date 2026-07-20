@@ -87,3 +87,38 @@ def test_render_word_marks_predicted_words_with_the_confidence_symbol():
     text = render_word(result)
 
     assert text.plain == "kuBERnetes≈"
+
+
+def test_resolve_word_by_pos_exposes_phonemes_for_a_dictionary_word():
+    result = resolve_word_by_pos("cat", "noun")
+    assert result.phonemes == ["K", "AE1", "T"]
+
+
+def test_resolve_word_by_pos_exposes_the_heteronym_resolved_phonemes():
+    """record(noun) and record(verb) must expose DIFFERENT phoneme lists --
+    proves .phonemes reflects the POS-resolved variant, not a naive
+    first-CMUdict-entry lookup that would return the same phonemes
+    regardless of POS."""
+    noun = resolve_word_by_pos("record", "noun")
+    verb = resolve_word_by_pos("record", "verb")
+    assert noun.phonemes == ["R", "EH1", "K", "ER0", "D"]
+    assert verb.phonemes == ["R", "IH0", "K", "AO1", "R", "D"]
+    assert noun.phonemes != verb.phonemes
+
+
+def test_resolve_word_by_pos_exposes_phonemes_for_a_g2p_predicted_word():
+    """A word with essentially no chance of being in CMUdict -- proves the
+    G2P-prediction branch also populates .phonemes, not just the two
+    dictionary-lookup branches."""
+    result = resolve_word_by_pos("zxqvorplitude", "noun")
+    assert isinstance(result.phonemes, list)
+    assert len(result.phonemes) > 0
+
+
+def test_resolve_word_by_pos_gives_an_empty_phonemes_list_for_a_reducible_word():
+    """Function words never get a phoneme lookup at all -- .phonemes must
+    default to [] rather than being missing or None, so callers can always
+    do `if result.phonemes:` without a hasattr/None check."""
+    result = resolve_word_by_pos("the", "noun")
+    assert result.cls == "reducible"
+    assert result.phonemes == []

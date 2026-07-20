@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stressmark"
-version = "0.1.0"
+version = "0.2.0"
 description = "Sentence-aware English stress marker (primary/secondary/reduced syllables)"
 requires-python = ">=3.11"
 dependencies = [
