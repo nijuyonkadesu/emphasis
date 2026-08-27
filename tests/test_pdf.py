@@ -1,8 +1,7 @@
 import sys
 from types import SimpleNamespace
 
-from stressmark import render
-from stressmark import cli
+from stressmark import cli, render
 
 
 def _result(**overrides):
@@ -36,6 +35,35 @@ def test_pdf_uses_the_exact_terminal_text_and_style_source():
         "underline yellow3",
         "bold yellow",
     ]
+
+
+def test_rich_renderer_can_report_word_ranges_without_changing_output():
+    raw_tokens = [(True, "Hello"), (False, " "), (True, "again")]
+    results = [
+        _result(tier="nuclear", rule=3),
+        _result(),
+        _result(
+            syllables=["a", "gain"],
+            primary=1,
+            secondary={0},
+            confidence="predicted",
+            rule=7,
+        ),
+    ]
+    expected = render._render_rich_text(raw_tokens, results, show_rules=True)
+    word_ranges = []
+
+    actual = render._render_rich_text(
+        raw_tokens,
+        results,
+        show_rules=True,
+        word_ranges=word_ranges,
+    )
+
+    assert actual == expected
+    assert word_ranges == [(0, 0, 9), (2, 10, 20)]
+    assert actual.plain[slice(*word_ranges[0][1:])] == "HELlo[R3]"
+    assert actual.plain[slice(*word_ranges[1][1:])] == "aGAIN≈[R7]"
 
 
 def test_render_pdf_returns_a_complete_pdf_with_an_embedded_font():

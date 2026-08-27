@@ -8,14 +8,15 @@ Usage:
     stressmark transcript.txt --format html -o out.html
     stressmark transcript.txt --format pdf -o out.pdf
     stressmark transcript.txt --format json -o out.json
+    stressmark transcript.txt --tui
     stressmark transcript.txt --explain
     stressmark transcript.txt --flag-heteronyms
 """
 import argparse
 import sys
 
-from stressmark.engine import analyze, HETERONYMS
 from stressmark import render
+from stressmark.engine import HETERONYMS, analyze
 
 
 def main():
@@ -34,7 +35,16 @@ def main():
                          help="Mark words whose stress depends on part of speech (record/object/...).")
     parser.add_argument("--nuclear-only", action="store_true",
                          help="Only highlight the nuclear (focus) word per clause; demote all other content words to secondary/unstressed.")
+    parser.add_argument("--tui", "--interactive", dest="tui", action="store_true",
+                         help="Browse the terminal output interactively with Vim or arrow keys.")
     args = parser.parse_args()
+
+    if args.tui and not args.input:
+        parser.error("--tui requires an input file because stdin is used for navigation")
+    if args.tui and args.output:
+        parser.error("--tui cannot be combined with --output")
+    if args.tui and args.format != "terminal":
+        parser.error("--tui cannot be combined with a non-terminal --format")
 
     if args.input:
         with open(args.input, "r", encoding="utf-8") as f:
@@ -44,6 +54,27 @@ def main():
 
     render.set_heteronym_words(HETERONYMS.keys())
     raw_tokens, results = analyze(text, nuclear_only=args.nuclear_only)
+
+    if args.tui:
+        # The main pane obeys --nuclear-only. The detail pane deliberately
+        # receives an ordinary analysis so it can always reveal the selected
+        # word's underlying lexical stress, including a demoted primary.
+        lexical_results = results
+        if args.nuclear_only:
+            lexical_tokens, lexical_results = analyze(text, nuclear_only=False)
+            if lexical_tokens != raw_tokens:
+                raise RuntimeError("TUI analyses produced different token streams")
+        from stressmark.tui import run_tui
+
+        run_tui(
+            raw_tokens,
+            results,
+            lexical_results,
+            show_rules=args.explain,
+            flag_heteronyms=args.flag_heteronyms,
+            source_name=args.input,
+        )
+        return
 
     if args.format == "terminal":
         if args.output:

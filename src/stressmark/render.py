@@ -2,11 +2,11 @@
 stressmark.render
 Four output formats for analyzed text: terminal (rich), PDF, HTML, JSON.
 """
+import html as htmlmod
+import json
+import os
 from functools import lru_cache
 from io import BytesIO
-import json
-import html as htmlmod
-import os
 from pathlib import Path
 
 CONF_LABELS = {
@@ -33,23 +33,40 @@ def _confidence_marker(conf):
 # Terminal (rich)
 # ---------------------------------------------------------------------------
 
-def _render_rich_text(raw_tokens, results, show_rules=False, flag_heteronyms=False):
-    """Build the styled document shared by the terminal and PDF renderers."""
+def _render_rich_text(
+    raw_tokens,
+    results,
+    show_rules=False,
+    flag_heteronyms=False,
+    word_ranges=None,
+):
+    """Build the styled document shared by the terminal, PDF, and TUI.
+
+    When ``word_ranges`` is supplied, append ``(token_index, start, end)``
+    entries for every word. This small hook lets interactive callers overlay
+    a cursor without reimplementing any of the renderer's styling rules.
+    """
     from rich.text import Text
 
     text = Text()
 
-    for tok, res in zip(raw_tokens, results):
+    for token_index, (tok, res) in enumerate(zip(raw_tokens, results)):
         isw, txt = tok
         if not isw:
             text.append(txt)
             continue
 
+        start = len(text)
+
         if res.cls == "reducible":
             text.append(txt.lower(), style="dim")
+            if word_ranges is not None:
+                word_ranges.append((token_index, start, len(text)))
             continue
         if res.tier in ("given", "suppressed"):
             text.append(txt.lower(), style="dim")
+            if word_ranges is not None:
+                word_ranges.append((token_index, start, len(text)))
             continue
 
         sylls = res.syllables
@@ -83,6 +100,8 @@ def _render_rich_text(raw_tokens, results, show_rules=False, flag_heteronyms=Fal
             text.append(f"[R{res.rule}]", style="dim cyan")
         if flag_heteronyms and txt.lower() in _HETERONYM_WORDS:
             text.append("\u26a0HET", style="bold magenta")
+        if word_ranges is not None:
+            word_ranges.append((token_index, start, len(text)))
 
     return text
 

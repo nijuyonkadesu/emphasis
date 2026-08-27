@@ -24,6 +24,7 @@ cat article.txt | stressmark
 stressmark transcript.txt --format pdf -o out.pdf
 stressmark transcript.txt --format html -o out.html
 stressmark transcript.txt --format json -o out.json
+stressmark transcript.txt --tui             # interactively inspect each word
 stressmark transcript.txt --explain          # show which of the 9 rules applied
 stressmark transcript.txt --flag-heteronyms  # mark record/object/export-type words
 stressmark transcript.txt --nuclear-only     # retain only the nuclear content peak per phrase
@@ -45,6 +46,17 @@ on landscape A4 pages and embeds a Unicode-capable monospace font when one is
 available on the system that creates the file. Use `-o` for a PDF file; without
 it, the binary PDF is written to stdout so it can be piped elsewhere.
 
+Interactive mode uses that same Rich-styled terminal document in a full-screen
+viewer. Run `stressmark transcript.txt --tui` (or `--interactive`), then move
+between words with `h`/`l` or Left/Right and between source lines with `j`/`k`
+or Down/Up; `Home` and `End` jump to the first and last word, and `q` exits.
+The bottom pane shows the selected word's raw lexical stressmark, POS tag, and
+pronunciation-source confidence. Existing display flags such as `--explain`,
+`--flag-heteronyms`, and `--nuclear-only` apply to the main pane. In
+`--nuclear-only` mode, the bottom pane intentionally retains the selected
+word's underlying primary stress so demoted words remain inspectable. TUI mode
+requires a file and cannot be combined with `-o` or a non-terminal `--format`.
+
 ## How it works
 
 ```
@@ -57,7 +69,7 @@ text → tokenize (NLTK, contraction-aware) → POS-tag (NLTK)
      → focus/contrast/wh + lemma-based given/repeat tiering
      → nuclear-stress assignment per phrase
      → rule-explainer annotation (--explain)
-     → render (terminal / PDF / HTML / JSON)
+     → render (terminal / interactive TUI / PDF / HTML / JSON)
 ```
 
 | Piece | Tool | Why |
@@ -164,6 +176,8 @@ a final answer.
   below)
 - `src/stressmark/render.py` — terminal / PDF / HTML / JSON renderers; also
   exposes `render_word(result)`, a single-word Rich `Text` renderer
+- `src/stressmark/tui.py` — interactive Rich/Textual document viewer with
+  Vim/arrow word navigation and a raw-stress detail pane
 - `test_engine.py` — exercises every rule and feature
 - `test_heteronyms.py` — heteronym resolution accuracy test
 - `test_secondary_stress.py` — secondary-stress clash-collapse accuracy test
