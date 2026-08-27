@@ -12,6 +12,7 @@ dependencies = [
     "pyphen>=0.17",
     "rich>=13.9",
     "g2p-en>=2.1",
+    "reportlab>=4.0",
 ]
 
 [project.optional-dependencies]

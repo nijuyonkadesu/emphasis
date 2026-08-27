@@ -6,6 +6,7 @@ Usage:
     stressmark transcript.txt
     cat article.txt | stressmark
     stressmark transcript.txt --format html -o out.html
+    stressmark transcript.txt --format pdf -o out.pdf
     stressmark transcript.txt --format json -o out.json
     stressmark transcript.txt --explain
     stressmark transcript.txt --flag-heteronyms
@@ -25,7 +26,7 @@ def main():
     )
     parser.add_argument("input", nargs="?", help="Input text file. Omit to read from stdin.")
     parser.add_argument("-o", "--output", help="Write output to this file instead of stdout.")
-    parser.add_argument("--format", choices=["terminal", "html", "json"], default="terminal",
+    parser.add_argument("--format", choices=["terminal", "pdf", "html", "json"], default="terminal",
                          help="Output format (default: terminal).")
     parser.add_argument("--explain", action="store_true",
                          help="Annotate words with which of the 9 stress rules applied.")
@@ -52,6 +53,15 @@ def main():
                 render.render_terminal(raw_tokens, results, args.explain, args.flag_heteronyms, console=con)
         else:
             render.render_terminal(raw_tokens, results, args.explain, args.flag_heteronyms)
+        return
+
+    if args.format == "pdf":
+        out = render.render_pdf(raw_tokens, results, args.explain, args.flag_heteronyms)
+        if args.output:
+            with open(args.output, "wb") as f:
+                f.write(out)
+        else:
+            sys.stdout.buffer.write(out)
         return
 
     if args.format == "html":

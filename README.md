@@ -21,6 +21,7 @@ spaCy" below.
 ```
 stressmark transcript.txt
 cat article.txt | stressmark
+stressmark transcript.txt --format pdf -o out.pdf
 stressmark transcript.txt --format html -o out.html
 stressmark transcript.txt --format json -o out.json
 stressmark transcript.txt --explain          # show which of the 9 rules applied
@@ -35,6 +36,14 @@ Terminal output:
 - `≈` = predicted (word not in the dictionary), 
 - `⚠` = ambiguous in the dictionary and not resolved.
 
+PDF export uses the same styled-text source as terminal output, including
+capitalization, colors, bold/italic text, underlines, dim text, reverse-video
+nuclear stress, confidence markers, and the optional `--explain` and
+`--flag-heteronyms` annotations. It renders a fixed 100-column terminal layout
+on landscape A4 pages and embeds a Unicode-capable monospace font when one is
+available on the system that creates the file. Use `-o` for a PDF file; without
+it, the binary PDF is written to stdout so it can be piped elsewhere.
+
 ## How it works
 
 ```
@@ -45,7 +54,7 @@ text → tokenize (NLTK, contraction-aware) → POS-tag (NLTK)
      → dictionary lookup (full CMUdict) or G2P prediction for unknown words
      → nuclear-stress + given/repeat tiering, per clause
      → rule-explainer annotation (--explain)
-     → render (terminal / html / json)
+     → render (terminal / PDF / HTML / JSON)
 ```
 
 | Piece | Tool | Why |
@@ -144,7 +153,7 @@ a final answer.
   `resolve_word_by_pos(word, pos)`, a single-word entry point for callers
   that already know the correct part of speech (see "Used as a library"
   below)
-- `src/stressmark/render.py` — terminal / HTML / JSON renderers; also
+- `src/stressmark/render.py` — terminal / PDF / HTML / JSON renderers; also
   exposes `render_word(result)`, a single-word Rich `Text` renderer
 - `test_engine.py` — exercises every rule and feature
 - `test_heteronyms.py` — heteronym resolution accuracy test
