@@ -14,15 +14,16 @@ Nuclear (IP focus) > Prominent (contrastive/wh/early) > Pre-nuclear (new info) >
 
 ## The Fix: Multi-Level Prominence System
 
-The tool now implements a **proper AM (Autosegmental-Metrical) model** with information structure:
+The tool implements a **text-derived AM (Autosegmental-Metrical) approximation** with information-structure heuristics:
 
 | Tier | When | Visual | Speech Realization |
 |------|------|--------|-------------------|
 | **nuclear** | Rightmost new/contrastive in IP | `REVERSE CAPS` (gold, glow) | Full pitch accent, highest prominence |
-| **prominent** | Contrastive focus, wh-correspondent, focus particle associate, early IP-initial | `BOLD CAPS` (yellow) | Strong pitch accent, slightly compressed |
+| **prominent** | Non-nuclear contrast, early IP/ip-initial material | `BOLD CAPS` (yellow) | Strong pitch accent, slightly compressed |
 | **pre-nuclear** | Regular new information | `BOLD YELLOW3 CAPS` | Pitch accent present but compressed |
 | **given** | Repeated/old information | `dim` (gray) | No accent, reduced vowels, low/flat pitch |
-| **suppressed** | Compound tails, weak function words | `dim` | Fully reduced |
+| **suppressed** | Compound tails | `dim` | Fully reduced |
+| **secondary** | Polysyllabic weak function words | `underline` | Lexical beat without phrase prominence |
 | **reducible** | Function words (a, the, to, of...) | `dim` | Maximum reduction |
 
 ---
@@ -30,14 +31,14 @@ The tool now implements a **proper AM (Autosegmental-Metrical) model** with info
 ## Usage
 
 ```bash
-# Default: full lexical stress (all primary = bold CAPS)
-python3 stressmark.py text.txt
+# Default: full multi-tier prominence view
+stressmark text.txt
 
-# Native-like prominence (recommended for speaking practice)
-python3 stressmark.py text.txt --nuclear-only
+# Nuclear-only practice view (all other content peaks become secondary cues)
+stressmark text.txt --nuclear-only
 
 # HTML output with full tier legend
-python3 stressmark.py text.txt --format html -o out.html
+stressmark text.txt --format html -o out.html
 ```
 
 ---
@@ -61,7 +62,7 @@ python3 stressmark.py text.txt --format html -o out.html
 
 ### 4. Given = De-Accented (Schwarzschild 1999)
 - **Explicitly mentioned** → no pitch accent
-- **Inferrable/accessible** (bridging) → may stay pre-nuclear
+- **Inferrable/accessible** (bridging) requires manual interpretation; the engine has no coreference model
 - Givenness tracked **across full discourse**, not per sentence
 
 ### 5. Rhythm: Stress Clash Avoidance (Liberman & Prince 1977)
@@ -75,8 +76,8 @@ python3 stressmark.py text.txt --format html -o out.html
 
 | Boundary | Trigger | Effect |
 |----------|---------|--------|
-| **IP** (major) | `. ! ? ; :` | New nuclear accent, givenness reset possible |
-| **ip** (intermediate) | `,` heavy NP, discourse markers (*however, therefore*) | Pre-nuclear accents allowed, own nuclear |
+| **IP** (major) | `. ! ? ; :` | New nuclear accent; discourse givenness remains available |
+| **ip** (intermediate) | `,`, discourse markers (*however, therefore*) | Pre-nuclear accents allowed, own nuclear |
 
 The engine splits at punctuation for IPs, and at commas/discourse markers for intermediate phrases (ips).
 
@@ -86,7 +87,7 @@ The engine splits at punctuation for IPs, and at commas/discourse markers for in
 
 ### 1. Run with Native-Like Prominence
 ```bash
-cat your_text.txt | python3 stressmark.py --nuclear-only
+cat your_text.txt | stressmark --nuclear-only
 ```
 
 ### 2. Read the Output Legend
@@ -100,12 +101,12 @@ cat your_text.txt | python3 stressmark.py --nuclear-only
 
 | Situation | Tool Output | Your Adjustment |
 |-----------|-------------|-----------------|
-| "not X but **Y**" | Nuclear on Y | ✓ Correct |
+| "not X but **Y**" | Prominent X, nuclear Y | ✓ Correct |
 | "**X** not Y" (correction) | Nuclear on Y | → Force prominent on X |
-| "Only **JOHN** came" | Prominent on JOHN | ✓ Correct |
-| Q: "Who came?" A: "**JOHN** came" | Prominent on JOHN | ✓ Correct |
-| "The **BIG** dog" (contrast) | Pre-nuclear on BIG | → Force prominent on BIG |
-| Topic: "**JOHN**, he left" | Prominent on JOHN | ✓ Correct (IP-initial) |
+| "Only **JOHN** came" | Nuclear on JOHN; following material de-accented | ✓ Correct |
+| Q: "Who came?" A: "**JOHN** came" | Nuclear on JOHN | ✓ Correct |
+| "The **BIG** dog" (contrast) | Often early-prominent, but contrast is not inferable | Verify manually |
+| Topic: "**JOHN**, he left" | Nuclear on JOHN in its comma-delimited ip | ✓ Correct |
 
 ### 4. Practice Rhythm
 - **Nuclear** = full pitch movement (H* or L+H*)
@@ -118,9 +119,9 @@ cat your_text.txt | python3 stressmark.py --nuclear-only
 ## Architecture (For Extending)
 
 ### Core Files
-- `stressmark_engine.py` — `analyze(text, nuclear_only=False)` returns `(raw_tokens, results)`
-- `stressmark_render.py` — `render_terminal/html/json`
-- `stressmark.py` — CLI
+- `src/stressmark/engine.py` — `analyze(text, nuclear_only=False)` returns `(raw_tokens, results)`
+- `src/stressmark/render.py` — terminal/PDF/HTML/JSON renderers
+- `src/stressmark/cli.py` — CLI
 
 ### Key Data Structures
 ```python
@@ -129,7 +130,7 @@ WordResult:
   .syllables     # orthographic syllables
   .primary       # primary stress syllable index
   .secondary     # set of secondary stress indices
-  .tier          # "nuclear" | "prominent" | "pre-nuclear" | "given" | "suppressed" | None
+  .tier          # "nuclear" | "prominent" | "pre-nuclear" | "given" | "secondary" | "suppressed" | None
   .cls           # "content" | "weak" | "reducible" | "compound-adj" | "compound-tail"
   .confidence    # "dict" | "dict-pos-resolved" | "predicted" | "rule-9" | "reducible"
   .rule          # which of 9 stress rules (1-9)
@@ -145,14 +146,14 @@ WordResult:
    - Contrast patterns (*not X but Y*, *X not Y*)
 5. **IP segmentation** (punctuation)
 6. **ip segmentation** (commas, discourse markers)
-7. **Information status tracking** (per lemma, across discourse)
+7. **Information status tracking** (surface form + WordNet lemma, across discourse)
 8. **Tier assignment per ip**:
-   - Nuclear = rightmost non-given / contrastive / focus-associate
-   - Prominent = IP-initial, contrastive, focus-associate, wh-correspondent
+   - Nuclear = explicit contrast/focus/wh-correspondent, otherwise rightmost non-given
+   - Prominent = IP/ip-initial or non-nuclear contrast
    - Pre-nuclear = other new info
    - Given = seen before
 9. **Clash resolution** — demote adjacent prominents
-10. **Optional demotion** (`--nuclear-only`: pre-nuclear → secondary only)
+10. **Optional demotion** (`--nuclear-only`: every non-nuclear content primary → secondary only)
 
 ---
 
@@ -163,7 +164,7 @@ WordResult:
 | No dependency parse | NLTK only, no spaCy model | Compound detection uses POS adjacency |
 | POS tagger ~95% | Errors on "contract" (verb→NN) | Heteronym table catches common cases |
 | No acoustic/prosodic model | Text-only input | Use `--explain` to see rule triggers |
-| Givenness = exact lemma match | No synonym/bridging inference | Manual mental correction |
+| Givenness = surface/WordNet lemma match | No synonym, coreference, or bridging inference | Manual mental correction |
 | Focus particles only lexicalized | No syntactic focus projection | Add to `FOCUS_PARTICLES` set |
 | English only | CMUdict + G2P_en | N/A |
 
@@ -177,21 +178,21 @@ WordResult:
 FOCUS_PARTICLES = {"only", "even", "just", "also", "alone", "merely",
                     "exactly", "precisely", "specifically", "particularly",
                     "especially", "mostly", "mainly", "largely",
-                    "particularly", "exclusively", "solely"}
+                    "exclusively", "solely"}
 ```
 
 ### Add Contrast Patterns
 ```python
 # In the discourse scan loop, add patterns:
 if lw == "rather" and prev_word == "not":
-    contrastive_lemmas.add(next_content_word)
+    contrastive_indices.add(next_content_index)
 ```
 
 ### Better IP Boundaries
-Replace `IP_BOUNDARY` regex with spaCy dependency parse (needs model download).
+Replace the punctuation/discourse-marker heuristics with a syntactic or prosodic parser.
 
 ### Cross-Sentence Givenness
-Already implemented — `info_status` dict persists across full text.
+Already implemented — the local `seen_keys` discourse set persists across the full text.
 
 ---
 
@@ -235,7 +236,7 @@ dim gray     = given / reduced / suppressed
 
 ```bash
 # Your new daily driver
-cat text.txt | python3 stressmark.py --nuclear-only
+cat text.txt | stressmark --nuclear-only
 ```
 
 **Only REVERSE GOLD words are your true speaking peaks.**  
@@ -243,4 +244,5 @@ cat text.txt | python3 stressmark.py --nuclear-only
 **BOLD ORANGE = "I'm here but not the point."**  
 **dim = background noise.**
 
-This matches how native speakers actually distribute prominence.
+This approximates common native-speaker prominence patterns from text alone;
+context, intended contrast, and delivery can still justify a different reading.

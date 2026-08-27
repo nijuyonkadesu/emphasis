@@ -13,8 +13,8 @@ ln -sf "$(pwd)/.venv/bin/stressmark" ~/.local/bin/stressmark
 ```
 
 First run will auto-download the NLTK data it needs (CMU Pronouncing
-Dictionary, POS tagger). No spaCy model is required — see "Why NLTK and not
-spaCy" below.
+Dictionary, POS tagger, and WordNet lemmatizer data). No spaCy model is
+required — see "Why NLTK and not spaCy" below.
 
 ## Usage
 
@@ -26,6 +26,7 @@ stressmark transcript.txt --format html -o out.html
 stressmark transcript.txt --format json -o out.json
 stressmark transcript.txt --explain          # show which of the 9 rules applied
 stressmark transcript.txt --flag-heteronyms  # mark record/object/export-type words
+stressmark transcript.txt --nuclear-only     # retain only the nuclear content peak per phrase
 ```
 
 Terminal output: 
@@ -52,7 +53,9 @@ text → tokenize (NLTK, contraction-aware) → POS-tag (NLTK)
      → heteronym resolution (record/object/... by POS)
      → compound-noun (Rule 8) / compound-adjective (Rule 9) detection
      → dictionary lookup (full CMUdict) or G2P prediction for unknown words
-     → nuclear-stress + given/repeat tiering, per clause
+     → major/intermediate phrase segmentation
+     → focus/contrast/wh + lemma-based given/repeat tiering
+     → nuclear-stress assignment per phrase
      → rule-explainer annotation (--explain)
      → render (terminal / PDF / HTML / JSON)
 ```
@@ -137,6 +140,12 @@ a final answer.
 - **Compound-adjective detection (Rule 9) only catches hyphenated tokens**
   tagged as adjectives. Open (non-hyphenated) compound adjectives aren't
   detected.
+- **Prominence is inferred from text, not recovered from audio or authorial
+  intent.** Explicit focus particles and `not X but Y` contrasts are handled,
+  but implicit contrast and unusual focus projection still need human review.
+- **Givenness uses exact surface forms plus WordNet lemmas.** It connects
+  ordinary inflections such as dog/dogs and buy/bought, but does not perform
+  synonym, coreference, or bridging inference.
 - **Orthographic syllable boundaries can land one consonant off** at
   cluster edges (e.g. "alcoholism" splits as "al-co-ho-lism" rather than
   "al-co-hol-ism") — the chosen stress *position* is still correct, just
