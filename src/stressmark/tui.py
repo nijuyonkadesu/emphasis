@@ -10,6 +10,10 @@ from textual.binding import Binding
 from textual.widgets import Footer, Header, Static
 
 from stressmark import render
+from stressmark.model import APP_NAME
+
+_DETAIL_META_STYLE = render.rich_style(render.VisualRole.LEGEND_DESCRIPTION)
+_DETAIL_WORD_STYLE = "bold cyan"
 
 
 @dataclass(frozen=True)
@@ -42,36 +46,36 @@ def _word_locations(raw_tokens):
 class StressmarkApp(App[None]):
     """Browse a stress-marked document one source word at a time."""
 
-    TITLE = "stressmark"
+    TITLE = APP_NAME
     SUB_TITLE = "interactive stress viewer"
 
-    CSS = """
-    Screen {
-        background: #15140f;
-        color: #ede8db;
-    }
+    CSS = f"""
+    Screen {{
+        background: {render.DARK_THEME.background};
+        color: {render.DARK_THEME.foreground};
+    }}
 
-    #document {
+    #document {{
         height: 1fr;
         padding: 1 2;
         overflow-y: auto;
-        scrollbar-color: #e7a23b;
-        scrollbar-color-hover: #ffc25c;
-        scrollbar-background: #252217;
-    }
+        scrollbar-color: {render.DARK_THEME.primary};
+        scrollbar-color-hover: {render.DARK_THEME.nuclear};
+        scrollbar-background: {render.DARK_THEME.chrome};
+    }}
 
-    #word-detail {
+    #word-detail {{
         height: 5;
         padding: 0 2;
-        border-top: solid #6fa8a0;
-        background: #201e16;
-        color: #ede8db;
-    }
+        border-top: solid {render.DARK_THEME.rule};
+        background: {render.DARK_THEME.surface};
+        color: {render.DARK_THEME.foreground};
+    }}
 
-    Header, Footer {
-        background: #252217;
-        color: #ede8db;
-    }
+    Header, Footer {{
+        background: {render.DARK_THEME.chrome};
+        color: {render.DARK_THEME.foreground};
+    }}
     """
 
     BINDINGS: ClassVar[list[Binding]] = [
@@ -86,7 +90,7 @@ class StressmarkApp(App[None]):
 
     _SELECTION_STYLE = Style(
         color="white",
-        bgcolor="#006b78",
+        bgcolor=render.DARK_THEME.selection,
         bold=True,
         reverse=False,
     )
@@ -195,7 +199,9 @@ class StressmarkApp(App[None]):
 
         if self.selected_index < 0:
             document.update(self.base_text)
-            detail.update(Text("No selectable words in this document.", style="dim"))
+            detail.update(
+                Text("No selectable words in this document.", style=_DETAIL_META_STYLE)
+            )
             return
 
         token_index, start, end = self.word_ranges[self.selected_index]
@@ -209,14 +215,15 @@ class StressmarkApp(App[None]):
         detail_text = Text()
         detail_text.append(
             f"Word {self.selected_index + 1}/{len(self.word_ranges)}  ",
-            style="dim",
+            style=_DETAIL_META_STYLE,
         )
-        detail_text.append(original, style="bold cyan")
-        detail_text.append("\nRaw stressmark: ", style="dim")
+        detail_text.append(original, style=_DETAIL_WORD_STYLE)
+        detail_text.append("\nRaw stressmark: ", style=_DETAIL_META_STYLE)
         detail_text.append_text(raw_stress)
         detail_text.append(
-            f"   POS: {result.tag or 'unknown'}   source: {result.confidence}",
-            style="dim",
+            f"   POS: {result.tag or 'unknown'}   "
+            f"source: {render.confidence_label(result.confidence)}",
+            style=_DETAIL_META_STYLE,
         )
         detail.update(detail_text)
 

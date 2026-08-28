@@ -12,6 +12,15 @@ from nltk import pos_tag
 from nltk.corpus import cmudict
 from nltk.stem import WordNetLemmatizer
 
+from stressmark.model import (
+    Confidence,
+    DiscourseKeyType,
+    PartOfSpeech,
+    ProminenceTier,
+    StressRule,
+    WordClass,
+)
+
 
 def _ensure_nltk_data():
     needed = [
@@ -42,16 +51,20 @@ _lemmatizer = WordNetLemmatizer()
 # Prominence tiers (AM theory + information structure)
 # nuclear > prominent > pre-nuclear > given > reduced
 # ---------------------------------------------------------------------------
-TIER_ORDER = ["nuclear", "prominent", "pre-nuclear", "given", "reduced", "suppressed"]
+TIER_ORDER = [tier.value for tier in ProminenceTier]
+
+BACKWARD_FOCUS_PARTICLE = "alone"
+NEGATION_MARKER = "not"
+CONTRAST_CONJUNCTION = "but"
 
 # Focus particles that trigger contrastive focus on their associate
-FOCUS_PARTICLES = {"only", "even", "just", "also", "alone", "merely", "simply",
+FOCUS_PARTICLES = {"only", "even", "just", "also", BACKWARD_FOCUS_PARTICLE, "merely", "simply",
                     "exactly", "precisely", "specifically", "particularly",
                     "especially", "mostly", "mainly", "largely", "exclusively",
                     "solely"}
 
 # Structural contrast markers handled by the local not-X-but-Y scan.
-CONTRAST_MARKERS = {"not", "but"}
+CONTRAST_MARKERS = {NEGATION_MARKER, CONTRAST_CONJUNCTION}
 
 # Discourse markers that often signal IP boundaries
 DISCOURSE_MARKERS = {"however", "therefore", "moreover", "furthermore", "nevertheless",
@@ -64,37 +77,53 @@ DISCOURSE_MARKERS = {"however", "therefore", "moreover", "furthermore", "neverth
 # then hand-resolved: which variant is the noun reading, which is the verb.
 # ---------------------------------------------------------------------------
 
+def _heteronym(noun_pronunciation, verb_pronunciation):
+    return {
+        PartOfSpeech.NOUN: noun_pronunciation,
+        PartOfSpeech.VERB: verb_pronunciation,
+    }
+
+
 HETERONYMS = {
-    "record":   {"noun": ['R','EH1','K','ER0','D'],         "verb": ['R','IH0','K','AO1','R','D']},
-    "object":   {"noun": ['AA1','B','JH','EH0','K','T'],     "verb": ['AH0','B','JH','EH1','K','T']},
-    "export":   {"noun": ['EH1','K','S','P','AO0','R','T'],  "verb": ['IH0','K','S','P','AO1','R','T']},
-    "import":   {"noun": ['IH1','M','P','AO0','R','T'],      "verb": ['IH0','M','P','AO1','R','T']},
-    "contract": {"noun": ['K','AA1','N','T','R','AE0','K','T'], "verb": ['K','AH0','N','T','R','AE1','K','T']},
-    "present":  {"noun": ['P','R','EH1','Z','AH0','N','T'],  "verb": ['P','R','IH0','Z','EH1','N','T']},
-    "produce":  {"noun": ['P','R','OW1','D','UW2','S'],      "verb": ['P','R','AH0','D','UW1','S']},
-    "project":  {"noun": ['P','R','AA1','JH','EH0','K','T'], "verb": ['P','R','AH0','JH','EH1','K','T']},
-    "progress": {"noun": ['P','R','AA1','G','R','EH2','S'],  "verb": ['P','R','AH0','G','R','EH1','S']},
-    "conduct":  {"noun": ['K','AA1','N','D','AH0','K','T'],  "verb": ['K','AH0','N','D','AH1','K','T']},
-    "increase": {"noun": ['IH1','N','K','R','IY2','S'],      "verb": ['IH0','N','K','R','IY1','S']},
-    "decrease": {"noun": ['D','IY1','K','R','IY2','S'],      "verb": ['D','IH0','K','R','IY1','S']},
-    "permit":   {"noun": ['P','ER1','M','IH0','T'],          "verb": ['P','ER0','M','IH1','T']},
-    "address":  {"noun": ['AE1','D','R','EH2','S'],          "verb": ['AH0','D','R','EH1','S']},
-    "contrast": {"noun": ['K','AA1','N','T','R','AE2','S','T'], "verb": ['K','AH0','N','T','R','AE1','S','T']},
-    "subject":  {"noun": ['S','AH1','B','JH','IH0','K','T'], "verb": ['S','AH0','B','JH','EH1','K','T']},
-    "extract":  {"noun": ['EH1','K','S','T','R','AE0','K','T'], "verb": ['IH0','K','S','T','R','AE1','K','T']},
-    "insult":   {"noun": ['IH1','N','S','AH0','L','T'],      "verb": ['IH0','N','S','AH1','L','T']},
-    "perfect":  {"noun": ['P','ER1','F','IH0','K','T'],      "verb": ['P','ER0','F','EH1','K','T']},
-    "suspect":  {"noun": ['S','AH1','S','P','EH0','K','T'],  "verb": ['S','AH0','S','P','EH1','K','T']},
+    "record": _heteronym(['R','EH1','K','ER0','D'], ['R','IH0','K','AO1','R','D']),
+    "object": _heteronym(['AA1','B','JH','EH0','K','T'], ['AH0','B','JH','EH1','K','T']),
+    "export": _heteronym(['EH1','K','S','P','AO0','R','T'], ['IH0','K','S','P','AO1','R','T']),
+    "import": _heteronym(['IH1','M','P','AO0','R','T'], ['IH0','M','P','AO1','R','T']),
+    "contract": _heteronym(['K','AA1','N','T','R','AE0','K','T'], ['K','AH0','N','T','R','AE1','K','T']),
+    "present": _heteronym(['P','R','EH1','Z','AH0','N','T'], ['P','R','IH0','Z','EH1','N','T']),
+    "produce": _heteronym(['P','R','OW1','D','UW2','S'], ['P','R','AH0','D','UW1','S']),
+    "project": _heteronym(['P','R','AA1','JH','EH0','K','T'], ['P','R','AH0','JH','EH1','K','T']),
+    "progress": _heteronym(['P','R','AA1','G','R','EH2','S'], ['P','R','AH0','G','R','EH1','S']),
+    "conduct": _heteronym(['K','AA1','N','D','AH0','K','T'], ['K','AH0','N','D','AH1','K','T']),
+    "increase": _heteronym(['IH1','N','K','R','IY2','S'], ['IH0','N','K','R','IY1','S']),
+    "decrease": _heteronym(['D','IY1','K','R','IY2','S'], ['D','IH0','K','R','IY1','S']),
+    "permit": _heteronym(['P','ER1','M','IH0','T'], ['P','ER0','M','IH1','T']),
+    "address": _heteronym(['AE1','D','R','EH2','S'], ['AH0','D','R','EH1','S']),
+    "contrast": _heteronym(['K','AA1','N','T','R','AE2','S','T'], ['K','AH0','N','T','R','AE1','S','T']),
+    "subject": _heteronym(['S','AH1','B','JH','IH0','K','T'], ['S','AH0','B','JH','EH1','K','T']),
+    "extract": _heteronym(['EH1','K','S','T','R','AE0','K','T'], ['IH0','K','S','T','R','AE1','K','T']),
+    "insult": _heteronym(['IH1','N','S','AH0','L','T'], ['IH0','N','S','AH1','L','T']),
+    "perfect": _heteronym(['P','ER1','F','IH0','K','T'], ['P','ER0','F','EH1','K','T']),
+    "suspect": _heteronym(['S','AH1','S','P','EH0','K','T'], ['S','AH0','S','P','EH1','K','T']),
 }
 
-NOUN_TAGS = {"NN", "NNS", "NNP", "NNPS"}
-VERB_TAGS = {"VB", "VBD", "VBG", "VBN", "VBP", "VBZ"}
-
 _POS_VOCAB_TO_TAG = {
-    "noun": "NN",
-    "verb": "VB",
-    "adjective": "JJ",
-    "adverb": "RB",
+    PartOfSpeech.NOUN: "NN",
+    PartOfSpeech.VERB: "VB",
+    PartOfSpeech.ADJECTIVE: "JJ",
+    PartOfSpeech.ADVERB: "RB",
+}
+if set(_POS_VOCAB_TO_TAG) != set(PartOfSpeech):
+    raise ValueError("Part-of-speech tag mapping is incomplete")
+PAST_PARTICIPLE_TAG = "VBN"
+NOUN_TAGS = {_POS_VOCAB_TO_TAG[PartOfSpeech.NOUN], "NNS", "NNP", "NNPS"}
+VERB_TAGS = {
+    _POS_VOCAB_TO_TAG[PartOfSpeech.VERB],
+    "VBD",
+    "VBG",
+    PAST_PARTICIPLE_TAG,
+    "VBP",
+    "VBZ",
 }
 
 # ---------------------------------------------------------------------------
@@ -111,7 +140,7 @@ TEMPORAL_ADVERBIALS = {"today", "tomorrow", "tonight", "yesterday"}
 SCHWA_MAP = {
     "a": "ə", "an": "ən", "the": "thə", "to": "tə", "of": "əv", "and": "ən",
     "for": "fər", "your": "yər", "are": "ər", "was": "wəz", "were": "wər",
-    "can": "kən", "could": "kəd", "would": "wəd", "should": "shəd", "but": "bət",
+    "can": "kən", "could": "kəd", "would": "wəd", "should": "shəd", CONTRAST_CONJUNCTION: "bət",
     "that": "thət", "than": "thən", "as": "əz", "from": "frəm", "or": "ər",
     "our": "ər", "their": "thər", "has": "həz", "have": "həv", "had": "həd",
     "am": "əm", "some": "səm", "his": "ihz",
@@ -125,16 +154,24 @@ def classify(word, tag, sent_tags_after, lower):
     """Return 'reducible' | 'weak' | 'content' for a word given its POS tag
     and the tags immediately following it within the same clause."""
     if CONTRACTION_FRAGMENT.match(word):
-        return "reducible"
+        return WordClass.REDUCIBLE
     if lower in BE_FORMS:
-        return "reducible"
+        return WordClass.REDUCIBLE
     if lower in DO_FORMS:
-        return "reducible" if "VB" in sent_tags_after[:4] else "content"
+        return (
+            WordClass.REDUCIBLE
+            if _POS_VOCAB_TO_TAG[PartOfSpeech.VERB] in sent_tags_after[:4]
+            else WordClass.CONTENT
+        )
     if lower in HAVE_FORMS:
-        return "reducible" if "VBN" in sent_tags_after[:4] else "content"
+        return (
+            WordClass.REDUCIBLE
+            if PAST_PARTICIPLE_TAG in sent_tags_after[:4]
+            else WordClass.CONTENT
+        )
     if tag in CLOSED_CLASS_TAGS:
-        return "reducible" if syllable_count(word) <= 1 else "weak"
-    return "content"
+        return WordClass.REDUCIBLE if syllable_count(word) <= 1 else WordClass.WEAK
+    return WordClass.CONTENT
 
 # ---------------------------------------------------------------------------
 # Syllabification: split the WRITTEN word into syllables (pyphen, TeX-style
@@ -265,36 +302,26 @@ def stress_positions_for_pron(pron, ortho_count, word=""):
 # The 9 named rules -- explanatory layer, not the decision mechanism.
 # ---------------------------------------------------------------------------
 
-RULES = {
-    1: "2-syllable noun -> stress 1st syllable",
-    2: "2-syllable adjective -> stress 1st syllable",
-    3: "2-syllable verb -> stress 2nd syllable",
-    4: "-ic ending -> stress syllable before 'ic'",
-    5: "-sion/-tion ending -> stress syllable before the ending",
-    6: "-cy/-ty/-phy/-gy ending -> stress antepenultimate syllable",
-    7: "-al ending -> stress antepenultimate syllable",
-    8: "compound noun -> stress 1st part",
-    9: "compound adjective -> stress 2nd part",
-}
+RULES = {rule: rule.description for rule in StressRule}
 
 def explain_rule(word, tag, ortho_sylls, primary_idx):
     lower = word.lower()
     n = len(ortho_sylls)
     if n == 2:
-        if tag in ("NN", "NNS", "NNP", "NNPS") and primary_idx == 0:
-            return 1
-        if tag in ("JJ",) and primary_idx == 0:
-            return 2
+        if tag in NOUN_TAGS and primary_idx == 0:
+            return StressRule.TWO_SYLLABLE_NOUN
+        if tag == _POS_VOCAB_TO_TAG[PartOfSpeech.ADJECTIVE] and primary_idx == 0:
+            return StressRule.TWO_SYLLABLE_ADJECTIVE
         if tag in VERB_TAGS and primary_idx == 1:
-            return 3
+            return StressRule.TWO_SYLLABLE_VERB
     if lower.endswith("ic") and primary_idx == n - 2:
-        return 4
+        return StressRule.IC_ENDING
     if (lower.endswith("sion") or lower.endswith("tion")) and primary_idx == n - 2:
-        return 5
+        return StressRule.SION_TION_ENDING
     if any(lower.endswith(s) for s in ("cy", "ty", "phy", "gy")) and primary_idx == max(0, n - 3):
-        return 6
+        return StressRule.CY_TY_PHY_GY_ENDING
     if lower.endswith("al") and primary_idx == max(0, n - 3):
-        return 7
+        return StressRule.AL_ENDING
     return None
 
 # ---------------------------------------------------------------------------
@@ -305,6 +332,7 @@ class WordResult:
     def __init__(self, raw):
         self.raw = raw
         self.is_word = False
+        self.is_heteronym = False
         self.syllables = []
         self.primary = -1
         self.secondary = set()
@@ -331,22 +359,31 @@ def resolve_word(raw, tag, sent_tags_after):
     lower = raw.lower()
     r = WordResult(raw)
     r.is_word = True
+    r.is_heteronym = lower in HETERONYMS
     r.cls = classify(raw, tag, sent_tags_after, lower)
 
-    if r.cls == "reducible":
+    if r.cls == WordClass.REDUCIBLE:
         r.syllables = syllabify(raw)
-        r.confidence = "reducible"
+        r.confidence = Confidence.REDUCIBLE
         return r
 
     # --- heteronym check (resolved by POS) ---
     if lower in HETERONYMS:
         want_verb = tag in VERB_TAGS
-        variant = HETERONYMS[lower]["verb"] if want_verb else HETERONYMS[lower]["noun"]
+        variant = (
+            HETERONYMS[lower][PartOfSpeech.VERB]
+            if want_verb
+            else HETERONYMS[lower][PartOfSpeech.NOUN]
+        )
         phonetic_n = sum(1 for p in variant if p[-1].isdigit())
         ortho = syllabify(raw, min_syllables=phonetic_n)
         r.syllables = ortho
         primary, secondary = stress_positions_for_pron(variant, len(ortho), lower)
-        r.primary, r.secondary, r.confidence = primary, secondary, "dict-pos-resolved"
+        r.primary, r.secondary, r.confidence = (
+            primary,
+            secondary,
+            Confidence.POS_RESOLVED,
+        )
         r.phonemes = variant
         return r
 
@@ -365,7 +402,11 @@ def resolve_word(raw, tag, sent_tags_after):
         # and ignore disagreement when the word is a single syllable, since
         # there's nothing to disambiguate).
         primaries = set(_primary_positions_with_one(prons))
-        r.confidence = "dict-flagged" if (len(ortho) > 1 and len(primaries) > 1) else "dict"
+        r.confidence = (
+            Confidence.AMBIGUOUS
+            if (len(ortho) > 1 and len(primaries) > 1)
+            else Confidence.DICTIONARY
+        )
         r.phonemes = pron
         return r
 
@@ -384,11 +425,15 @@ def resolve_word(raw, tag, sent_tags_after):
     r.syllables = ortho
 
     if phonetic_n <= 1 or len(ortho) == 1:
-        r.primary, r.confidence = 0, ("dict" if phonetic_n <= 1 else "predicted")
+        r.primary, r.confidence = 0, (
+            Confidence.DICTIONARY
+            if phonetic_n <= 1
+            else Confidence.PREDICTED
+        )
         return r
 
     primary, secondary = stress_positions_for_pron(phones, len(ortho), lower)
-    r.primary, r.secondary, r.confidence = primary, secondary, "predicted"
+    r.primary, r.secondary, r.confidence = primary, secondary, Confidence.PREDICTED
     return r
 
 
@@ -484,11 +529,11 @@ def _discourse_keys(word, tag):
     """Return surface and lemma keys without conflating known heteronym senses."""
     lower = word.lower()
     if lower in HETERONYMS:
-        sense = "verb" if tag in VERB_TAGS else "noun"
-        return {("heteronym", lower, sense)}
+        sense = PartOfSpeech.VERB if tag in VERB_TAGS else PartOfSpeech.NOUN
+        return {(DiscourseKeyType.HETERONYM, lower, sense)}
     return {
-        ("surface", lower),
-        ("lemma", _discourse_key(word, tag)),
+        (DiscourseKeyType.SURFACE, lower),
+        (DiscourseKeyType.LEMMA, _discourse_key(word, tag)),
     }
 
 
@@ -534,8 +579,8 @@ def analyze(text, nuclear_only=False):
             and results[b].tag in NOUN_TAGS
             and raw_tokens[b][1].lower() not in TEMPORAL_ADVERBIALS
         ):
-            results[b].cls = "compound-tail"
-            results[a].rule = 8
+            results[b].cls = WordClass.COMPOUND_TAIL
+            results[a].rule = StressRule.COMPOUND_NOUN
 
     # --- compound adjective detection (Rule 9): hyphenated token tagged JJ.
     # Resolve each hyphen-part on its own, then stitch back together: the
@@ -543,11 +588,18 @@ def analyze(text, nuclear_only=False):
     # is kept but demoted to secondary (matches real prosody, e.g. ,old-'fashioned).
     for i in word_indices:
         res = results[i]
-        if res.tag == "JJ" and "-" in res.raw and res.cls == "content":
+        if (
+            res.tag == _POS_VOCAB_TO_TAG[PartOfSpeech.ADJECTIVE]
+            and "-" in res.raw
+            and res.cls == WordClass.CONTENT
+        ):
             parts = res.raw.split("-")
-            sub_results = [resolve_word(p, "JJ", []) for p in parts]
+            sub_results = [
+                resolve_word(p, _POS_VOCAB_TO_TAG[PartOfSpeech.ADJECTIVE], [])
+                for p in parts
+            ]
             res.compound_parts = sub_results
-            res.cls = "compound-adj"
+            res.cls = WordClass.COMPOUND_ADJECTIVE
 
             combined_syllables = []
             combined_secondary = set()
@@ -568,8 +620,8 @@ def analyze(text, nuclear_only=False):
             res.syllables = combined_syllables
             res.primary = combined_primary if combined_primary >= 0 else 0
             res.secondary = combined_secondary
-            res.confidence = "rule-9"
-            res.rule = 9
+            res.confidence = Confidence.COMPOUND_ADJECTIVE_RULE
+            res.rule = StressRule.COMPOUND_ADJECTIVE
 
     # -------------------------------------------------------------------------
     # Prominence assignment: multi-level, information-structure aware
@@ -599,13 +651,16 @@ def analyze(text, nuclear_only=False):
 
     def is_prominence_candidate(i):
         return (
-            results[i].cls in ("content", "compound-adj")
+            results[i].cls in (WordClass.CONTENT, WordClass.COMPOUND_ADJECTIVE)
             and raw_tokens[i][1].lower() not in cue_words
         )
 
     def is_trackable(i):
         return results[i].cls in (
-            "content", "compound-adj", "compound-tail", "weak"
+            WordClass.CONTENT,
+            WordClass.COMPOUND_ADJECTIVE,
+            WordClass.COMPOUND_TAIL,
+            WordClass.WEAK,
         )
 
     word_position = {idx: position for position, idx in enumerate(word_indices)}
@@ -618,7 +673,7 @@ def analyze(text, nuclear_only=False):
             if lower in FOCUS_PARTICLES:
                 search_positions = (
                     range(position - 1, -1, -1)
-                    if lower == "alone"
+                    if lower == BACKWARD_FOCUS_PARTICLE
                     else range(position + 1, len(ip))
                 )
                 for associate_position in search_positions:
@@ -627,14 +682,15 @@ def analyze(text, nuclear_only=False):
                         focus_associates.add(associate)
                         break
 
-            if lower != "not":
+            if lower != NEGATION_MARKER:
                 continue
 
             but_position = next(
                 (
                     later_position
                     for later_position in range(position + 1, len(ip))
-                    if raw_tokens[ip[later_position]][1].lower() == "but"
+                    if raw_tokens[ip[later_position]][1].lower()
+                    == CONTRAST_CONJUNCTION
                 ),
                 None,
             )
@@ -699,8 +755,12 @@ def analyze(text, nuclear_only=False):
             # Cue words organize focus but should not compete with their own
             # associate for an accent.
             for i in phrase:
-                if results[i].cls in ("content", "compound-adj") and i not in candidates:
-                    results[i].tier = "given"
+                if (
+                    results[i].cls
+                    in (WordClass.CONTENT, WordClass.COMPOUND_ADJECTIVE)
+                    and i not in candidates
+                ):
+                    results[i].tier = ProminenceTier.GIVEN
 
             if not candidates:
                 for i in phrase:
@@ -744,15 +804,15 @@ def analyze(text, nuclear_only=False):
 
             for candidate_position, i in enumerate(candidates):
                 if i == nuclear_i:
-                    results[i].tier = "nuclear"
+                    results[i].tier = ProminenceTier.NUCLEAR
                 elif i in explicit_focus:
-                    results[i].tier = "prominent"
+                    results[i].tier = ProminenceTier.PROMINENT
                 elif occurrence_is_given[i] or (shifted_nuclear and i > nuclear_i):
-                    results[i].tier = "given"
+                    results[i].tier = ProminenceTier.GIVEN
                 elif candidate_position <= 1:
-                    results[i].tier = "prominent"
+                    results[i].tier = ProminenceTier.PROMINENT
                 else:
-                    results[i].tier = "pre-nuclear"
+                    results[i].tier = ProminenceTier.PRE_NUCLEAR
 
             seen_keys = working_seen
 
@@ -761,10 +821,20 @@ def analyze(text, nuclear_only=False):
             # than cascading every later accent downward.
             previous_is_prominent = False
             for i in phrase:
-                is_prominent = results[i].tier in ("nuclear", "prominent")
-                if is_prominent and previous_is_prominent and results[i].tier == "prominent":
-                    results[i].tier = "pre-nuclear"
-                previous_is_prominent = results[i].tier in ("nuclear", "prominent")
+                is_prominent = results[i].tier in (
+                    ProminenceTier.NUCLEAR,
+                    ProminenceTier.PROMINENT,
+                )
+                if (
+                    is_prominent
+                    and previous_is_prominent
+                    and results[i].tier == ProminenceTier.PROMINENT
+                ):
+                    results[i].tier = ProminenceTier.PRE_NUCLEAR
+                previous_is_prominent = results[i].tier in (
+                    ProminenceTier.NUCLEAR,
+                    ProminenceTier.PROMINENT,
+                )
 
         ending_separator = _separator_after_word(
             raw_tokens, word_indices, word_position[ip[-1]]
@@ -779,10 +849,10 @@ def analyze(text, nuclear_only=False):
 
     # Weak / compound-tail get fixed tiers
     for i in word_indices:
-        if results[i].cls in ("weak",):
-            results[i].tier = "secondary"
-        if results[i].cls == "compound-tail":
-            results[i].tier = "suppressed"
+        if results[i].cls == WordClass.WEAK:
+            results[i].tier = ProminenceTier.SECONDARY
+        if results[i].cls == WordClass.COMPOUND_TAIL:
+            results[i].tier = ProminenceTier.SUPPRESSED
 
     # Nuclear-only mode: retain lexical stress data only on nuclear words and
     # turn every other content-word primary into a secondary visual cue.
@@ -790,8 +860,8 @@ def analyze(text, nuclear_only=False):
         for i in word_indices:
             res = results[i]
             if (
-                res.cls in ("content", "compound-adj")
-                and res.tier != "nuclear"
+                res.cls in (WordClass.CONTENT, WordClass.COMPOUND_ADJECTIVE)
+                and res.tier != ProminenceTier.NUCLEAR
                 and res.primary >= 0
             ):
                 res.secondary.add(res.primary)
@@ -800,7 +870,11 @@ def analyze(text, nuclear_only=False):
     # Rule explanation
     for i in word_indices:
         res = results[i]
-        if res.cls in ("content", "weak") and res.primary >= 0 and res.rule is None:
+        if (
+            res.cls in (WordClass.CONTENT, WordClass.WEAK)
+            and res.primary >= 0
+            and res.rule is None
+        ):
             res.rule = explain_rule(res.raw, res.tag, res.syllables, res.primary)
 
     return raw_tokens, results

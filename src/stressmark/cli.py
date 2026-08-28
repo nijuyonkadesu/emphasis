@@ -16,21 +16,22 @@ import argparse
 import sys
 
 from stressmark import render
-from stressmark.engine import HETERONYMS, analyze
+from stressmark.engine import RULES, analyze
+from stressmark.model import APP_NAME, OutputFormat
 
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="stressmark",
+        prog=APP_NAME,
         description="Mark primary/secondary/unstressed syllables in English text, "
                     "with sentence-aware nuclear stress and repeat backgrounding.",
     )
     parser.add_argument("input", nargs="?", help="Input text file. Omit to read from stdin.")
     parser.add_argument("-o", "--output", help="Write output to this file instead of stdout.")
-    parser.add_argument("--format", choices=["terminal", "pdf", "html", "json"], default="terminal",
+    parser.add_argument("--format", type=OutputFormat, choices=tuple(OutputFormat), default=OutputFormat.TERMINAL,
                          help="Output format (default: terminal).")
     parser.add_argument("--explain", action="store_true",
-                         help="Annotate words with which of the 9 stress rules applied.")
+                         help=f"Annotate words with which of the {len(RULES)} stress rules applied.")
     parser.add_argument("--flag-heteronyms", action="store_true",
                          help="Mark words whose stress depends on part of speech (record/object/...).")
     parser.add_argument("--nuclear-only", action="store_true",
@@ -43,7 +44,7 @@ def main():
         parser.error("--tui requires an input file because stdin is used for navigation")
     if args.tui and args.output:
         parser.error("--tui cannot be combined with --output")
-    if args.tui and args.format != "terminal":
+    if args.tui and args.format != OutputFormat.TERMINAL:
         parser.error("--tui cannot be combined with a non-terminal --format")
 
     if args.input:
@@ -52,7 +53,6 @@ def main():
     else:
         text = sys.stdin.read()
 
-    render.set_heteronym_words(HETERONYMS.keys())
     raw_tokens, results = analyze(text, nuclear_only=args.nuclear_only)
 
     if args.tui:
@@ -76,17 +76,17 @@ def main():
         )
         return
 
-    if args.format == "terminal":
+    if args.format == OutputFormat.TERMINAL:
         if args.output:
             from rich.console import Console
             with open(args.output, "w", encoding="utf-8") as f:
-                con = Console(file=f, force_terminal=True, width=100)
+                con = Console(file=f, force_terminal=True, width=render.OUTPUT_COLUMNS)
                 render.render_terminal(raw_tokens, results, args.explain, args.flag_heteronyms, console=con)
         else:
             render.render_terminal(raw_tokens, results, args.explain, args.flag_heteronyms)
         return
 
-    if args.format == "pdf":
+    if args.format == OutputFormat.PDF:
         out = render.render_pdf(raw_tokens, results, args.explain, args.flag_heteronyms)
         if args.output:
             with open(args.output, "wb") as f:
@@ -95,8 +95,13 @@ def main():
             sys.stdout.buffer.write(out)
         return
 
-    if args.format == "html":
-        out = render.render_html(raw_tokens, results, args.explain)
+    if args.format == OutputFormat.HTML:
+        out = render.render_html(
+            raw_tokens,
+            results,
+            args.explain,
+            args.flag_heteronyms,
+        )
     else:
         out = render.render_json(raw_tokens, results)
 

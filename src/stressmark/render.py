@@ -5,28 +5,298 @@ Four output formats for analyzed text: terminal (rich), PDF, HTML, JSON.
 import html as htmlmod
 import json
 import os
+from dataclasses import dataclass
+from enum import StrEnum
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 
-CONF_LABELS = {
-    "dict": "dictionary",
-    "dict-pos-resolved": "dictionary (resolved by part-of-speech)",
-    "dict-flagged": "dictionary -- ambiguous, unresolved",
-    "predicted": "predicted (word not in dictionary)",
-    "rule-9": "compound-adjective rule",
-    "reducible": "function word (reduced)",
+from stressmark.model import (
+    APP_NAME,
+    Confidence,
+    DiscourseKeyType,
+    ProminenceTier,
+    StressLevel,
+    WordClass,
+)
+
+
+class VisualRole(StrEnum):
+    NUCLEAR = ProminenceTier.NUCLEAR
+    PROMINENT = ProminenceTier.PROMINENT
+    PRE_NUCLEAR = ProminenceTier.PRE_NUCLEAR
+    SECONDARY = StressLevel.SECONDARY
+    BACKGROUNDED = "backgrounded"
+    PREDICTED_MARKER = "predicted-marker"
+    AMBIGUOUS_MARKER = "ambiguous-marker"
+    PRIMARY = StressLevel.PRIMARY
+    PREDICTED_PRIMARY = "predicted-primary"
+    AMBIGUOUS_PRIMARY = "ambiguous-primary"
+    UNSTRESSED = "unstressed"
+    RULE = "rule"
+    HETERONYM = DiscourseKeyType.HETERONYM
+    LEGEND_DESCRIPTION = "legend-description"
+
+
+@dataclass(frozen=True)
+class ThemePalette:
+    background: str
+    foreground: str
+    primary: str
+    pre_nuclear: str
+    nuclear: str
+    nuclear_glow: str
+    unstressed: str
+    backgrounded: str
+    ambiguous: str
+    rule: str
+    heteronym: str
+    separator: str
+    surface: str
+    chrome: str
+    selection: str
+
+
+DARK_THEME = ThemePalette(
+    background="#15140F",
+    foreground="#EDE8DB",
+    primary="#E7A23B",
+    pre_nuclear="#D4A843",
+    nuclear="#FFC25C",
+    nuclear_glow="rgba(255,194,92,.45)",
+    unstressed="#8C8674",
+    backgrounded="#5C5848",
+    ambiguous="#FF8A5C",
+    rule="#6FA8A0",
+    heteronym="#D783FF",
+    separator="#36321F",
+    surface="#201E16",
+    chrome="#252217",
+    selection="#006B78",
+)
+
+
+@dataclass(frozen=True)
+class VisualDefinition:
+    """Presentation metadata for one semantic role in every styled medium."""
+
+    name: VisualRole
+    rich_style: str
+    html_style: str = ""
+    legend_sample: str | None = None
+    legend_meaning: str | None = None
+    marker: str | None = None
+
+    @property
+    def legend_text(self):
+        return self.legend_sample or self.marker
+
+
+# Tuple order is legend order. All presentation metadata for a semantic role
+# is declared once here; lookup tables and legends are derived below.
+_VISUAL_DEFINITIONS = (
+    VisualDefinition(
+        VisualRole.NUCLEAR,
+        "bold reverse yellow",
+        f"color:{DARK_THEME.nuclear}; font-weight:700; "
+        f"border-bottom:3px solid {DARK_THEME.nuclear}; "
+        f"text-shadow:0 0 14px {DARK_THEME.nuclear_glow}",
+        "REVERSE",
+        ProminenceTier.NUCLEAR,
+    ),
+    VisualDefinition(
+        VisualRole.PROMINENT,
+        "bold yellow",
+        f"color:{DARK_THEME.primary}; font-weight:700; "
+        f"border-bottom:2px solid {DARK_THEME.primary}",
+        "CAPS",
+        ProminenceTier.PROMINENT,
+    ),
+    VisualDefinition(
+        VisualRole.PRE_NUCLEAR,
+        "bold yellow3",
+        f"color:{DARK_THEME.pre_nuclear}; font-weight:600; "
+        f"border-bottom:2px solid {DARK_THEME.pre_nuclear}; "
+        "opacity:.9",
+        "CAPS",
+        ProminenceTier.PRE_NUCLEAR,
+    ),
+    VisualDefinition(
+        VisualRole.SECONDARY,
+        "underline yellow3",
+        f"color:{DARK_THEME.primary}; opacity:.75; "
+        f"border-bottom:1px dotted {DARK_THEME.primary}",
+        "underline",
+        StressLevel.SECONDARY,
+    ),
+    VisualDefinition(
+        VisualRole.BACKGROUNDED,
+        "dim",
+        f"color:{DARK_THEME.backgrounded}",
+        "dim",
+        "given/reduced/suppressed",
+    ),
+    VisualDefinition(
+        VisualRole.PREDICTED_MARKER,
+        "yellow3",
+        f"color:{DARK_THEME.pre_nuclear}; font-size:.8em; opacity:.85",
+        legend_meaning=Confidence.PREDICTED,
+        marker="≈",
+    ),
+    VisualDefinition(
+        VisualRole.AMBIGUOUS_MARKER,
+        "bold red",
+        f"color:{DARK_THEME.ambiguous}; font-size:.8em; font-weight:700",
+        legend_meaning="ambiguous",
+        marker="⚠",
+    ),
+    VisualDefinition(
+        VisualRole.PRIMARY,
+        "bold yellow",
+        f"color:{DARK_THEME.primary}; font-weight:600; "
+        f"border-bottom:2px solid {DARK_THEME.primary}",
+    ),
+    # In HTML these two are modifiers layered on the tier/primary class, which
+    # preserves its existing visual composition. In Rich they are the complete
+    # untiered primary style.
+    VisualDefinition(
+        VisualRole.PREDICTED_PRIMARY,
+        "bold italic yellow3",
+        "border-bottom-style:dashed !important; opacity:.85",
+    ),
+    VisualDefinition(
+        VisualRole.AMBIGUOUS_PRIMARY,
+        "bold orange3",
+        f"color:{DARK_THEME.ambiguous} !important",
+    ),
+    VisualDefinition(
+        VisualRole.UNSTRESSED,
+        "grey62",
+        f"color:{DARK_THEME.unstressed}",
+    ),
+    VisualDefinition(
+        VisualRole.RULE,
+        "dim cyan",
+        f"font-size:.7em; color:{DARK_THEME.rule}; vertical-align:super",
+    ),
+    VisualDefinition(
+        VisualRole.HETERONYM,
+        "bold magenta",
+        f"color:{DARK_THEME.heteronym}; font-size:.8em; font-weight:700",
+        marker="⚠HET",
+    ),
+    VisualDefinition(VisualRole.LEGEND_DESCRIPTION, "dim"),
+)
+
+_VISUALS = {visual.name: visual for visual in _VISUAL_DEFINITIONS}
+if len(_VISUALS) != len(_VISUAL_DEFINITIONS) or set(_VISUALS) != set(VisualRole):
+    raise ValueError("Visual definitions must cover each visual role exactly once")
+
+_LEGEND_VISUALS = tuple(
+    visual
+    for visual in _VISUAL_DEFINITIONS
+    if visual.legend_text is not None and visual.legend_meaning is not None
+)
+
+_TIER_PRIMARY_VISUALS = {
+    ProminenceTier.NUCLEAR: VisualRole.NUCLEAR,
+    ProminenceTier.PROMINENT: VisualRole.PROMINENT,
+    ProminenceTier.PRE_NUCLEAR: VisualRole.PRE_NUCLEAR,
 }
 
 
-def _confidence_marker(conf):
-    return {
-        "dict": "",
-        "dict-pos-resolved": "",
-        "dict-flagged": "\u26a0",   # ⚠
-        "predicted": "\u2248",      # ≈ (approximately)
-        "rule-9": "",
-    }.get(conf, "")
+@dataclass(frozen=True)
+class ConfidenceDefinition:
+    """Human label and visual roles for one engine confidence value."""
+
+    label: str
+    primary_visual: VisualRole = VisualRole.PRIMARY
+    marker_visual: VisualRole | None = None
+
+
+_CONFIDENCE_DEFINITIONS = {
+    Confidence.DICTIONARY: ConfidenceDefinition("dictionary"),
+    Confidence.POS_RESOLVED: ConfidenceDefinition(
+        "dictionary (resolved by part-of-speech)"
+    ),
+    Confidence.AMBIGUOUS: ConfidenceDefinition(
+        "dictionary -- ambiguous, unresolved",
+        VisualRole.AMBIGUOUS_PRIMARY,
+        VisualRole.AMBIGUOUS_MARKER,
+    ),
+    Confidence.PREDICTED: ConfidenceDefinition(
+        "predicted (word not in dictionary)",
+        VisualRole.PREDICTED_PRIMARY,
+        VisualRole.PREDICTED_MARKER,
+    ),
+    Confidence.COMPOUND_ADJECTIVE_RULE: ConfidenceDefinition(
+        "compound-adjective rule"
+    ),
+    Confidence.REDUCIBLE: ConfidenceDefinition("function word (reduced)"),
+}
+if set(_CONFIDENCE_DEFINITIONS) != set(Confidence):
+    raise ValueError("Confidence presentation definitions are incomplete")
+
+# Backward-compatible public view, derived rather than maintained separately.
+CONF_LABELS = {
+    confidence.value: definition.label
+    for confidence, definition in _CONFIDENCE_DEFINITIONS.items()
+}
+
+for confidence, definition in _CONFIDENCE_DEFINITIONS.items():
+    referenced_visuals = (definition.primary_visual, definition.marker_visual)
+    for visual_name in referenced_visuals:
+        if visual_name is not None and visual_name not in _VISUALS:
+            raise ValueError(
+                f"Confidence {confidence!r} references unknown visual {visual_name!r}"
+            )
+
+_OUTPUT_TITLE = f"{APP_NAME} output"
+
+
+def confidence_label(confidence):
+    definition = _CONFIDENCE_DEFINITIONS.get(confidence)
+    return confidence if definition is None else definition.label
+
+
+def rich_style(visual_name):
+    return _VISUALS[visual_name].rich_style
+
+
+def _confidence_definition(confidence):
+    return _CONFIDENCE_DEFINITIONS.get(
+        confidence,
+        ConfidenceDefinition(str(confidence)),
+    )
+
+
+def _primary_rich_style(tier, confidence):
+    visual_name = _TIER_PRIMARY_VISUALS.get(tier)
+    if visual_name is None:
+        visual_name = _confidence_definition(confidence).primary_visual
+    return rich_style(visual_name)
+
+
+def _marker_visual(visual_name):
+    visual = _VISUALS[visual_name]
+    if visual.marker is None:
+        raise ValueError(f"Visual {visual_name!r} has no marker")
+    return visual
+
+
+def _confidence_marker_visual(confidence):
+    visual_name = _confidence_definition(confidence).marker_visual
+    return None if visual_name is None else _marker_visual(visual_name)
+
+
+def _append_confidence_marker(text, confidence):
+    visual = _confidence_marker_visual(confidence)
+    if visual is not None:
+        text.append(visual.marker, style=visual.rich_style)
+
+
+def _rule_marker(rule):
+    return f"[R{rule}]"
 
 
 # ---------------------------------------------------------------------------
@@ -58,13 +328,13 @@ def _render_rich_text(
 
         start = len(text)
 
-        if res.cls == "reducible":
-            text.append(txt.lower(), style="dim")
+        if res.cls == WordClass.REDUCIBLE:
+            text.append(txt.lower(), style=rich_style(VisualRole.BACKGROUNDED))
             if word_ranges is not None:
                 word_ranges.append((token_index, start, len(text)))
             continue
-        if res.tier in ("given", "suppressed"):
-            text.append(txt.lower(), style="dim")
+        if res.tier in (ProminenceTier.GIVEN, ProminenceTier.SUPPRESSED):
+            text.append(txt.lower(), style=rich_style(VisualRole.BACKGROUNDED))
             if word_ranges is not None:
                 word_ranges.append((token_index, start, len(text)))
             continue
@@ -76,33 +346,57 @@ def _render_rich_text(
                 text.append("-")
                 continue
             if i == res.primary:
-                if res.tier == "nuclear":
-                    style = "bold reverse yellow"
-                elif res.tier == "prominent":
-                    style = "bold yellow"
-                elif res.tier == "pre-nuclear":
-                    style = "bold yellow3"
-                elif conf == "predicted":
-                    style = "bold italic yellow3"
-                elif conf == "dict-flagged":
-                    style = "bold orange3"
-                else:
-                    style = "bold yellow"
-                text.append(s.upper(), style=style)
+                text.append(s.upper(), style=_primary_rich_style(res.tier, conf))
             elif i in res.secondary:
-                text.append(s.lower(), style="underline yellow3")
+                text.append(s.lower(), style=rich_style(VisualRole.SECONDARY))
             else:
-                text.append(s.lower(), style="grey62")
-        marker = _confidence_marker(conf)
-        if marker:
-            text.append(marker, style="bold red" if conf == "dict-flagged" else "yellow3")
+                text.append(s.lower(), style=rich_style(VisualRole.UNSTRESSED))
+        _append_confidence_marker(text, conf)
         if show_rules and res.rule:
-            text.append(f"[R{res.rule}]", style="dim cyan")
-        if flag_heteronyms and txt.lower() in _HETERONYM_WORDS:
-            text.append("\u26a0HET", style="bold magenta")
+            text.append(_rule_marker(res.rule), style=rich_style(VisualRole.RULE))
+        if flag_heteronyms and getattr(res, "is_heteronym", False):
+            visual = _marker_visual(VisualRole.HETERONYM)
+            text.append(visual.marker, style=visual.rich_style)
         if word_ranges is not None:
             word_ranges.append((token_index, start, len(text)))
 
+    return text
+
+
+def _render_legend_text():
+    """Render the legend from the semantic Rich visual registry."""
+    from rich.text import Text
+
+    legend = Text()
+    for position, visual in enumerate(_LEGEND_VISUALS):
+        legend_text = visual.legend_text
+        if legend_text is None or visual.legend_meaning is None:
+            raise ValueError(f"Rich visual {visual.name!r} has no legend metadata")
+        if position:
+            legend.append("  ", style=rich_style(VisualRole.LEGEND_DESCRIPTION))
+        legend.append(legend_text, style=visual.rich_style)
+        legend.append(
+            f"={visual.legend_meaning}",
+            style=rich_style(VisualRole.LEGEND_DESCRIPTION),
+        )
+    return legend
+
+
+def _render_rich_document(
+    raw_tokens,
+    results,
+    show_rules=False,
+    flag_heteronyms=False,
+    include_legend=False,
+):
+    """Compose a complete Rich document for terminal-like output media."""
+    text = _render_rich_text(raw_tokens, results, show_rules, flag_heteronyms)
+    if include_legend:
+        if text:
+            if not text.plain.endswith("\n"):
+                text.append("\n")
+            text.append("\n")
+        text.append_text(_render_legend_text())
     return text
 
 
@@ -112,27 +406,22 @@ def render_terminal(raw_tokens, results, show_rules=False, flag_heteronyms=False
     owns_console = console is None
     if console is None:
         console = Console()
-    text = _render_rich_text(raw_tokens, results, show_rules, flag_heteronyms)
-
+    text = _render_rich_document(
+        raw_tokens,
+        results,
+        show_rules,
+        flag_heteronyms,
+        include_legend=owns_console,
+    )
     console.print(text)
-    if owns_console:
-        console.print()
-        console.print(
-            "[bold reverse yellow]REVERSE[/bold reverse yellow]=nuclear  "
-            "[bold yellow]CAPS[/bold yellow]=prominent  "
-            "[bold yellow3]CAPS[/bold yellow3]=pre-nuclear  "
-            "[underline]underline[/underline]=secondary  "
-            "[dim]dim[/dim]=given/reduced  "
-            "[yellow3]\u2248[/yellow3]=predicted  [red]\u26a0[/red]=ambiguous",
-            style="dim",
-        )
 
 
 # ---------------------------------------------------------------------------
 # PDF
 # ---------------------------------------------------------------------------
 
-PDF_COLUMNS = 100
+OUTPUT_COLUMNS = 100
+PDF_COLUMNS = OUTPUT_COLUMNS
 PDF_FONT_SIZE = 12
 PDF_LINE_HEIGHT = 18
 PDF_MARGIN = 36
@@ -215,7 +504,13 @@ def render_pdf(raw_tokens, results, show_rules=False, flag_heteronyms=False):
     from rich.console import Console
     from rich.terminal_theme import MONOKAI
 
-    text = _render_rich_text(raw_tokens, results, show_rules, flag_heteronyms)
+    text = _render_rich_document(
+        raw_tokens,
+        results,
+        show_rules,
+        flag_heteronyms,
+        include_legend=True,
+    )
     console = Console(
         width=PDF_COLUMNS,
         color_system="truecolor",
@@ -231,7 +526,7 @@ def render_pdf(raw_tokens, results, show_rules=False, flag_heteronyms=False):
     buffer = BytesIO()
     page_size = landscape(A4)
     pdf = canvas.Canvas(buffer, pagesize=page_size, pageCompression=1)
-    pdf.setTitle("stressmark output")
+    pdf.setTitle(_OUTPUT_TITLE)
     regular, bold, italic, bold_italic = _pdf_fonts()
     page_width, page_height = page_size
     background = _pdf_color(None, MONOKAI, MONOKAI.background_color)
@@ -305,8 +600,11 @@ def render_word(result):
     from rich.text import Text
 
     text = Text()
-    if result.cls == "reducible":
-        text.append(result.raw.lower(), style="dim")
+    if result.cls == WordClass.REDUCIBLE:
+        text.append(
+            result.raw.lower(),
+            style=rich_style(VisualRole.BACKGROUNDED),
+        )
         return text
 
     sylls = result.syllables
@@ -316,81 +614,87 @@ def render_word(result):
             text.append("-")
             continue
         if i == result.primary:
-            if conf == "predicted":
-                style = "bold italic yellow3"
-            elif conf == "dict-flagged":
-                style = "bold orange3"
-            else:
-                style = "bold yellow"
-            text.append(s.upper(), style=style)
+            text.append(s.upper(), style=_primary_rich_style(None, conf))
         elif i in result.secondary:
-            text.append(s.lower(), style="underline yellow3")
+            text.append(s.lower(), style=rich_style(VisualRole.SECONDARY))
         else:
-            text.append(s.lower(), style="grey62")
+            text.append(s.lower(), style=rich_style(VisualRole.UNSTRESSED))
 
-    marker = _confidence_marker(conf)
-    if marker:
-        text.append(marker, style="bold red" if conf == "dict-flagged" else "yellow3")
+    _append_confidence_marker(text, conf)
 
     return text
-
-
-_HETERONYM_WORDS = set()
-
-
-def set_heteronym_words(words):
-    global _HETERONYM_WORDS
-    _HETERONYM_WORDS = set(words)
 
 
 # ---------------------------------------------------------------------------
 # HTML
 # ---------------------------------------------------------------------------
 
+def _html_visual_css():
+    """Generate semantic CSS directly from the visual registry."""
+    return "\n".join(
+        f"  .{visual.name} {{{visual.html_style};}}"
+        for visual in _VISUAL_DEFINITIONS
+        if visual.html_style
+    )
+
+
+def _html_span(text, *visual_names):
+    classes = " ".join(htmlmod.escape(name, quote=True) for name in visual_names)
+    return f'<span class="{classes}">{htmlmod.escape(text)}</span>'
+
+
+def _html_primary_visuals(tier, confidence):
+    """Return HTML's base prominence role plus any confidence modifier."""
+    base_visual = _TIER_PRIMARY_VISUALS.get(tier, VisualRole.PRIMARY)
+    confidence_visual = _confidence_definition(confidence).primary_visual
+    if confidence_visual == VisualRole.PRIMARY:
+        return (base_visual,)
+    return (base_visual, confidence_visual)
+
+
+def _render_html_legend():
+    """Render HTML legend content from the same ordered definitions as Rich."""
+    items = []
+    for visual in _LEGEND_VISUALS:
+        legend_text = visual.legend_text
+        if legend_text is None or visual.legend_meaning is None:
+            raise ValueError(f"HTML visual {visual.name!r} has no legend metadata")
+        sample = _html_span(legend_text, visual.name)
+        meaning = htmlmod.escape(visual.legend_meaning)
+        items.append(f'<span class="legend-item">{sample}={meaning}</span>')
+    return "\n  ".join(items)
+
+
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
-<title>stressmark output</title>
+<title>{title}</title>
 <style>
-  body{{ background:#15140F; color:#EDE8DB; font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+  body{{ background:{background}; color:{foreground}; font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;
         font-size:16px; line-height:2.1; padding:32px; max-width:840px; margin:0 auto; }}
-  .unstressed{{ color:#8C8674; }}
-  .reduced{{ color:#5C5848; }}
-  .primary{{ color:#E7A23B; font-weight:600; border-bottom:2px solid #E7A23B; }}
-  .prominent{{ color:#E7A23B; font-weight:700; border-bottom:2px solid #E7A23B; }}
-  .pre-nuclear{{ color:#D4A843; font-weight:600; border-bottom:2px solid #D4A843; opacity:0.9; }}
-  .secondary{{ color:#E7A23B; opacity:0.75; border-bottom:1px dotted #E7A23B; }}
-  .nuclear{{ color:#FFC25C; font-weight:700; border-bottom:3px solid #FFC25C;
-            text-shadow:0 0 14px rgba(255,194,92,.45); }}
-  .predicted{{ border-bottom-style:dashed !important; opacity:0.85; }}
-  .flagged{{ color:#FF8A5C !important; }}
-  .mark{{ font-size:.8em; opacity:.7; }}
-  .rule{{ font-size:.7em; color:#6FA8A0; vertical-align:super; }}
-  .legend{{ margin-top:28px; padding-top:16px; border-top:1px solid #36321F; color:#8C8674; font-size:13px; }}
-  .legend span{{ margin-right:18px; }}
+{visual_css}
+  .legend{{ margin-top:28px; padding-top:16px; border-top:1px solid {separator}; color:{unstressed}; font-size:13px; }}
+  .legend-item{{ display:inline-block; margin-right:18px; }}
 </style></head><body>
 <div class="output">{body}</div>
 <div class="legend">
-  <span class="nuclear">CAPS</span>nuclear (IP focus) &nbsp;
-  <span class="prominent">CAPS</span>prominent (contrast/wh/early) &nbsp;
-  <span class="pre-nuclear">CAPS</span>pre-nuclear (new info) &nbsp;
-  <span class="secondary">low</span>secondary &nbsp;
-  <span class="reduced">low</span>given/reduced &nbsp;
-  <span class="predicted">dashed</span>predicted &nbsp;
-  <span class="flagged">orange</span>ambiguous
+  {legend}
 </div>
 </body></html>
 """
 
 
-def render_html(raw_tokens, results, show_rules=False):
+def render_html(raw_tokens, results, show_rules=False, flag_heteronyms=False):
     parts = []
     for tok, res in zip(raw_tokens, results):
         isw, txt = tok
         if not isw:
             parts.append(htmlmod.escape(txt))
             continue
-        if res.cls == "reducible" or res.tier in ("given", "suppressed"):
-            parts.append(f'<span class="reduced">{htmlmod.escape(txt.lower())}</span>')
+        if res.cls == WordClass.REDUCIBLE or res.tier in (
+            ProminenceTier.GIVEN,
+            ProminenceTier.SUPPRESSED,
+        ):
+            parts.append(_html_span(txt.lower(), VisualRole.BACKGROUNDED))
             continue
         sylls = res.syllables
         conf = res.confidence
@@ -400,30 +704,33 @@ def render_html(raw_tokens, results, show_rules=False):
                 word_html += "-"
                 continue
             if i == res.primary:
-                if res.tier == "nuclear":
-                    cls = "nuclear"
-                elif res.tier == "prominent":
-                    cls = "prominent"
-                elif res.tier == "pre-nuclear":
-                    cls = "pre-nuclear"
-                else:
-                    cls = "primary"
-                if conf == "predicted":
-                    cls += " predicted"
-                if conf == "dict-flagged":
-                    cls += " flagged"
-                word_html += f'<span class="{cls}">{htmlmod.escape(s.upper())}</span>'
+                word_html += _html_span(
+                    s.upper(),
+                    *_html_primary_visuals(res.tier, conf),
+                )
             elif i in res.secondary:
-                word_html += f'<span class="secondary">{htmlmod.escape(s.lower())}</span>'
+                word_html += _html_span(s.lower(), VisualRole.SECONDARY)
             else:
-                word_html += f'<span class="unstressed">{htmlmod.escape(s.lower())}</span>'
-        marker = _confidence_marker(conf)
-        if marker:
-            word_html += f'<span class="mark">{marker}</span>'
+                word_html += _html_span(s.lower(), VisualRole.UNSTRESSED)
+        marker_visual = _confidence_marker_visual(conf)
+        if marker_visual is not None:
+            word_html += _html_span(marker_visual.marker, marker_visual.name)
         if show_rules and res.rule:
-            word_html += f'<span class="rule">R{res.rule}</span>'
+            word_html += _html_span(_rule_marker(res.rule), VisualRole.RULE)
+        if flag_heteronyms and getattr(res, "is_heteronym", False):
+            visual = _marker_visual(VisualRole.HETERONYM)
+            word_html += _html_span(visual.marker, visual.name)
         parts.append(word_html)
-    return HTML_TEMPLATE.format(body="".join(parts))
+    return HTML_TEMPLATE.format(
+        title=htmlmod.escape(_OUTPUT_TITLE),
+        background=DARK_THEME.background,
+        foreground=DARK_THEME.foreground,
+        separator=DARK_THEME.separator,
+        unstressed=DARK_THEME.unstressed,
+        body="".join(parts),
+        visual_css=_html_visual_css(),
+        legend=_render_html_legend(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -444,14 +751,19 @@ def render_json(raw_tokens, results):
             "class": res.cls,
             "tier": res.tier,
             "confidence": res.confidence,
-            "confidence_label": CONF_LABELS.get(res.confidence, res.confidence),
+            "confidence_label": confidence_label(res.confidence),
         }
-        if res.cls != "reducible":
+        if res.cls != WordClass.REDUCIBLE:
             entry["syllables"] = [
                 {
                     "text": s,
-                    "stress": ("primary" if i == res.primary else
-                               "secondary" if i in res.secondary else "none"),
+                    "stress": (
+                        StressLevel.PRIMARY
+                        if i == res.primary
+                        else StressLevel.SECONDARY
+                        if i in res.secondary
+                        else StressLevel.NONE
+                    ),
                 }
                 for i, s in enumerate(res.syllables) if s != "-"
             ]

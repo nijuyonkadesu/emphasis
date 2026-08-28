@@ -25,18 +25,15 @@ stressmark transcript.txt --format pdf -o out.pdf
 stressmark transcript.txt --format html -o out.html
 stressmark transcript.txt --format json -o out.json
 stressmark transcript.txt --tui             # interactively inspect each word
-stressmark transcript.txt --explain          # show which of the 9 rules applied
+stressmark transcript.txt --explain          # show the applicable stress-rule ID
 stressmark transcript.txt --flag-heteronyms  # mark record/object/export-type words
 stressmark transcript.txt --nuclear-only     # retain only the nuclear content peak per phrase
 ```
 
-Terminal output: 
-- **CAPS** = primary stress, 
-- underline = secondary stress,
-- dim = unstressed/reduced, 
-- reverse-video = nuclear (loudest word in its clause), 
-- `≈` = predicted (word not in the dictionary), 
-- `⚠` = ambiguous in the dictionary and not resolved.
+Normal terminal output ends with a generated, styled legend. The legend's
+samples, meanings, ordering, markers, Rich styles, and HTML styles come from
+the semantic visual registry in `stressmark.render`; they are not separately
+maintained by each renderer.
 
 PDF export uses the same styled-text source as terminal output, including
 capitalization, colors, bold/italic text, underlines, dim text, reverse-video
@@ -44,7 +41,9 @@ nuclear stress, confidence markers, and the optional `--explain` and
 `--flag-heteronyms` annotations. It renders a fixed 100-column terminal layout
 on landscape A4 pages and embeds a Unicode-capable monospace font when one is
 available on the system that creates the file. Use `-o` for a PDF file; without
-it, the binary PDF is written to stdout so it can be piped elsewhere.
+it, the binary PDF is written to stdout so it can be piped elsewhere. The same
+styled symbol legend shown after normal terminal output is included once at the
+end of every PDF.
 
 Interactive mode uses that same Rich-styled terminal document in a full-screen
 viewer. Run `stressmark transcript.txt --tui` (or `--interactive`), then move
@@ -170,12 +169,16 @@ a final answer.
 ## Files
 
 - `src/stressmark/cli.py` — CLI entry point
+- `src/stressmark/model.py` — authoritative shared vocabularies for word
+  classes, prominence tiers, confidence values, stress levels, rule IDs,
+  parts of speech, and output formats
 - `src/stressmark/engine.py` — the analysis pipeline; also exposes
   `resolve_word_by_pos(word, pos)`, a single-word entry point for callers
   that already know the correct part of speech (see "Used as a library"
   below)
 - `src/stressmark/render.py` — terminal / PDF / HTML / JSON renderers; also
-  exposes `render_word(result)`, a single-word Rich `Text` renderer
+  exposes `render_word(result)`, a single-word Rich `Text` renderer. Its visual
+  and theme registries are shared by terminal, PDF, HTML, and TUI output
 - `src/stressmark/tui.py` — interactive Rich/Textual document viewer with
   Vim/arrow word navigation and a raw-stress detail pane
 - `test_engine.py` — exercises every rule and feature
