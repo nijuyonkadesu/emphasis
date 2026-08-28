@@ -3,10 +3,13 @@
 from dataclasses import dataclass
 from typing import ClassVar
 
-from rich.style import Style
+from rich.cells import cell_len
+from rich.style import Style as RichStyle
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.content import Content, Span
+from textual.style import Style as TextualStyle
 from textual.widgets import Footer, Header, Static
 
 from stressmark import render
@@ -18,28 +21,49 @@ _DETAIL_WORD_STYLE = "bold cyan"
 
 @dataclass(frozen=True)
 class _WordLocation:
-    """A selectable word's token index and original source position."""
+    """A selectable word's token index and wrapped display position."""
 
     token_index: int
-    line: int
+    row: int
     column: int
 
 
-def _word_locations(raw_tokens):
-    """Map word tokens to zero-based source lines and columns."""
-    locations = []
-    line = 0
-    column = 0
-    for token_index, (is_word, token_text) in enumerate(raw_tokens):
-        if is_word:
-            locations.append(_WordLocation(token_index, line, column))
+_WORD_LINK_PREFIX = "stressmark-word:"
 
-        pieces = token_text.split("\n")
-        if len(pieces) == 1:
-            column += len(token_text)
-        else:
-            line += len(pieces) - 1
-            column = len(pieces[-1])
+
+def _wrapped_word_locations(text, word_ranges, width, console):
+    """Map selectable words to Textual's wrapped display rows and columns."""
+    content = Content.from_rich_text(text, console=console)
+    content = content.add_spans(
+        [
+            Span(
+                start,
+                end,
+                TextualStyle(link=f"{_WORD_LINK_PREFIX}{word_index}"),
+            )
+            for word_index, (_, start, end) in enumerate(word_ranges)
+        ]
+    )
+
+    locations = [None] * len(word_ranges)
+    for row, line in enumerate(content.wrap(max(width, 1))):
+        for span in line.spans:
+            style = span.style
+            if not isinstance(style, TextualStyle) or not style.link:
+                continue
+            if not style.link.startswith(_WORD_LINK_PREFIX):
+                continue
+            word_index = int(style.link.removeprefix(_WORD_LINK_PREFIX))
+            if locations[word_index] is None:
+                token_index = word_ranges[word_index][0]
+                locations[word_index] = _WordLocation(
+                    token_index,
+                    row,
+                    cell_len(line.plain[:span.start]),
+                )
+
+    if any(location is None for location in locations):
+        raise RuntimeError("Unable to locate every selectable word after wrapping")
     return locations
 
 
@@ -88,7 +112,7 @@ class StressmarkApp(App[None]):
         Binding("q", "quit", "q quit", show=True),
     ]
 
-    _SELECTION_STYLE = Style(
+    _SELECTION_STYLE = RichStyle(
         color="white",
         bgcolor=render.DARK_THEME.selection,
         bold=True,
@@ -117,9 +141,9 @@ class StressmarkApp(App[None]):
             flag_heteronyms,
             word_ranges=self.word_ranges,
         )
-        self.word_locations = _word_locations(raw_tokens)
         self.selected_index = 0 if self.word_ranges else -1
         self._preferred_column = None
+        self._word_location_cache = {}
         if source_name:
             self.sub_title = source_name
 
@@ -166,32 +190,46 @@ class StressmarkApp(App[None]):
             self._refresh_selection()
 
     def _move_line(self, direction: int) -> None:
-        if not self.word_locations:
+        if not self.word_ranges:
             return
 
-        current = self.word_locations[self.selected_index]
+        document = self.query_one("#document", Static)
+        word_locations = self._get_word_locations(document)
+        current = word_locations[self.selected_index]
         if self._preferred_column is None:
             self._preferred_column = current.column
 
-        candidate_lines = {
-            location.line
-            for location in self.word_locations
-            if (location.line - current.line) * direction > 0
+        candidate_rows = {
+            location.row
+            for location in word_locations
+            if (location.row - current.row) * direction > 0
         }
-        if not candidate_lines:
+        if not candidate_rows:
             return
 
-        target_line = min(candidate_lines) if direction > 0 else max(candidate_lines)
+        target_row = min(candidate_rows) if direction > 0 else max(candidate_rows)
         candidates = [
             (index, location)
-            for index, location in enumerate(self.word_locations)
-            if location.line == target_line
+            for index, location in enumerate(word_locations)
+            if location.row == target_row
         ]
         self.selected_index = min(
             candidates,
             key=lambda item: (abs(item[1].column - self._preferred_column), item[0]),
         )[0]
         self._refresh_selection()
+
+    def _get_word_locations(self, document):
+        """Return wrapped locations, recomputing them only after width changes."""
+        width = max(document.content_region.width, 1)
+        if width not in self._word_location_cache:
+            self._word_location_cache[width] = _wrapped_word_locations(
+                self.base_text,
+                self.word_ranges,
+                width,
+                self.console,
+            )
+        return self._word_location_cache[width]
 
     def _refresh_selection(self) -> None:
         document = self.query_one("#document", Static)
@@ -227,15 +265,8 @@ class StressmarkApp(App[None]):
         )
         detail.update(detail_text)
 
-        # Approximate the selected word's wrapped display row. Rich/Textual
-        # may differ by a column for wide Unicode markers, but this keeps long
-        # paragraphs reliably near the cursor without altering their layout.
-        width = max(document.content_size.width, 1)
-        prefix_lines = self.base_text.plain[:start].split("\n")
-        display_row = sum(
-            max(1, (len(line) // width) + 1) for line in prefix_lines[:-1]
-        )
-        display_row += len(prefix_lines[-1]) // width
+        word_locations = self._get_word_locations(document)
+        display_row = word_locations[self.selected_index].row
         document.scroll_to(y=max(0, display_row - 2), immediate=True, force=True)
 
 

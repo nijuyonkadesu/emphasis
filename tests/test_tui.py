@@ -95,6 +95,44 @@ def test_tui_vim_and_arrow_navigation_and_raw_stress_detail():
     asyncio.run(exercise())
 
 
+def test_tui_line_navigation_moves_between_wrapped_visual_rows():
+    words = ["Alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"]
+    raw_tokens = []
+    results = []
+    for index, word in enumerate(words):
+        if index:
+            raw_tokens.append((False, " "))
+            results.append(_separator(" "))
+        raw_tokens.append((True, word))
+        results.append(_result(word))
+
+    app = StressmarkApp(raw_tokens, results, results)
+
+    async def exercise():
+        async with app.run_test(size=(24, 16)) as pilot:
+            await pilot.pause()
+
+            # The document has 20 content columns after horizontal padding:
+            #   Alpha beta gamma
+            #   delta epsilon zeta
+            #   eta theta
+            # j/k should traverse those displayed rows even though the source
+            # contains no newline, retaining the preferred visual column.
+            await pilot.press("j")
+            assert app.selected_index == 3
+
+            await pilot.press("down")
+            assert app.selected_index == 6
+
+            await pilot.press("k")
+            assert app.selected_index == 3
+
+            await pilot.press("up")
+            assert app.selected_index == 0
+
+    asyncio.run(exercise())
+
+
 def test_tui_handles_a_document_with_no_words():
     app = StressmarkApp(
         [(False, "...\n")], [_separator("...\n")], [_separator("...\n")]

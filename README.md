@@ -47,8 +47,9 @@ end of every PDF.
 
 Interactive mode uses that same Rich-styled terminal document in a full-screen
 viewer. Run `stressmark transcript.txt --tui` (or `--interactive`), then move
-between words with `h`/`l` or Left/Right and between source lines with `j`/`k`
-or Down/Up; `Home` and `End` jump to the first and last word, and `q` exits.
+between words with `h`/`l` or Left/Right and between displayed rows—including
+wrapped rows—with `j`/`k` or Down/Up; `Home` and `End` jump to the first and
+last word, and `q` exits.
 The bottom pane shows the selected word's raw lexical stressmark, POS tag, and
 pronunciation-source confidence. Existing display flags such as `--explain`,
 `--flag-heteronyms`, and `--nuclear-only` apply to the main pane. In
