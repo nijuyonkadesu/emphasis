@@ -36,6 +36,7 @@ class VisualRole(StrEnum):
     RULE = "rule"
     HETERONYM = DiscourseKeyType.HETERONYM
     LEGEND_DESCRIPTION = "legend-description"
+    DETAIL_WORD = "detail-word"
 
 
 @dataclass(frozen=True)
@@ -186,6 +187,7 @@ _VISUAL_DEFINITIONS = (
         marker="⚠HET",
     ),
     VisualDefinition(VisualRole.LEGEND_DESCRIPTION, "dim"),
+    VisualDefinition(VisualRole.DETAIL_WORD, "bold cyan"),
 )
 
 _VISUALS = {visual.name: visual for visual in _VISUAL_DEFINITIONS}
@@ -623,6 +625,24 @@ def render_word(result):
     _append_confidence_marker(text, conf)
 
     return text
+
+
+def render_word_detail(result, original, word_number, total_words):
+    """Render the shared cursor-detail panel used by interactive viewers."""
+    from rich.text import Text
+
+    detail = Text()
+    meta_style = rich_style(VisualRole.LEGEND_DESCRIPTION)
+    detail.append(f"Word {word_number}/{total_words}  ", style=meta_style)
+    detail.append(original, style=rich_style(VisualRole.DETAIL_WORD))
+    detail.append("\nRaw stressmark: ", style=meta_style)
+    detail.append_text(render_word(result))
+    detail.append(
+        f"   POS: {result.tag or 'unknown'}   "
+        f"source: {confidence_label(result.confidence)}",
+        style=meta_style,
+    )
+    return detail
 
 
 # ---------------------------------------------------------------------------

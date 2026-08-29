@@ -22,7 +22,6 @@ from stressmark.model import APP_NAME
 from stressmark.viewer import analyze_for_viewer
 
 _DETAIL_META_STYLE = render.rich_style(render.VisualRole.LEGEND_DESCRIPTION)
-_DETAIL_WORD_STYLE = "bold cyan"
 
 
 @dataclass(frozen=True)
@@ -504,21 +503,14 @@ class StressmarkApp(App[None]):
 
         original = self.raw_tokens[token_index][1]
         result = self.lexical_results[token_index]
-        raw_stress = render.render_word(result)
-        detail_text = Text()
-        detail_text.append(
-            f"Word {self.selected_index + 1}/{len(self.word_ranges)}  ",
-            style=_DETAIL_META_STYLE,
+        detail.update(
+            render.render_word_detail(
+                result,
+                original,
+                self.selected_index + 1,
+                len(self.word_ranges),
+            )
         )
-        detail_text.append(original, style=_DETAIL_WORD_STYLE)
-        detail_text.append("\nRaw stressmark: ", style=_DETAIL_META_STYLE)
-        detail_text.append_text(raw_stress)
-        detail_text.append(
-            f"   POS: {result.tag or 'unknown'}   "
-            f"source: {render.confidence_label(result.confidence)}",
-            style=_DETAIL_META_STYLE,
-        )
-        detail.update(detail_text)
 
         word_locations = self._get_word_locations(content)
         display_row = word_locations[self.selected_index].row

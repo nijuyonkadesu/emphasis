@@ -65,16 +65,26 @@ into that viewer session. In
 word's underlying primary stress so demoted words remain inspectable. TUI mode
 cannot be combined with `-o` or a non-terminal `--format`.
 
-Native editor mode launches the real Vim or Neovim in a read-only temporary
-buffer, so normal motions, searches, marks, mappings, plugins, mouse behavior,
-and scrolling remain native to the editor. Run `stressmark transcript.txt
---vim`, or pipe text to `stressmark --vim`. The window-local statusline shows
-the word under the cursor, its raw stressmark, POS tag, and pronunciation
-source. Launch flags such as `--nuclear-only`, `--explain`, and
-`--flag-heteronyms` apply to the generated buffer. Stressmark uses a Vim-family
+Native editor mode launches the real Vim or Neovim, so motions, searches,
+marks, plugins, mouse behavior, and scrolling remain native to the editor. Run
+`stressmark --vim` for an empty paste-ready Neovim viewer, provide a file, or
+pipe initial text. Terminal/GUI paste and buffer-local `p`/`P` replace the
+current document; `:StressmarkPaste [register]` is the command equivalent and
+`:StressmarkClear` returns to the empty state. Pasted text appears immediately
+in plain form with an analyzing indicator, then transitions atomically to the
+colored stressmark rendering. The rendered buffer remains read-only between
+pastes and the original file is never opened for editing.
+
+Word wrapping and line breaking are enabled, with buffer-local `j`/`k` mappings
+to `gj`/`gk` so vertical movement follows displayed wrapped rows. A persistent,
+non-focusable colored panel in the bottom-right shows the word under the cursor,
+its raw stressmark, POS tag, and pronunciation source without replacing the
+user's statusline. Launch flags such as `--nuclear-only`, `--explain`, and
+`--flag-heteronyms` persist across every paste. Stressmark uses a Vim-family
 `$VISUAL`, then `$EDITOR`, and otherwise searches for `nvim`, `vim`, or `vi`.
-The user's normal editor configuration is loaded. This first version is
-intentionally read-only; the original file is never opened for editing.
+The user's normal editor configuration is loaded. Reusable pasting currently
+requires Neovim; classic Vim retains the static viewer when initial text is
+provided and requires JSON, text-property, and popup-window support.
 
 ## How it works
 
@@ -202,7 +212,9 @@ a final answer.
 - `src/stressmark/tui.py` — interactive Rich/Textual document viewer with
   Vim/arrow word navigation and a raw-stress detail pane
 - `src/stressmark/vim.py` — read-only native Neovim/Vim viewer adapter with
-  shared highlights and cursor-sensitive stress details
+  reusable Neovim pasting, shared highlights, and cursor-sensitive details
+- `src/stressmark/vim_worker.py` — persistent analyzer used by reusable native
+  Neovim sessions
 - `src/stressmark/viewer.py` — shared display/lexical analysis for interactive
   viewers
 - `test_engine.py` — exercises every rule and feature

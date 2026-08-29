@@ -30,7 +30,7 @@ def main():
     parser.add_argument(
         "input",
         nargs="?",
-        help="Input text file. Omit to read stdin, or start blank in --tui.",
+        help="Input text file. Omit to read stdin, or start blank in --tui/--vim.",
     )
     parser.add_argument("-o", "--output", help="Write output to this file instead of stdout.")
     parser.add_argument("--format", type=OutputFormat, choices=tuple(OutputFormat), default=OutputFormat.TERMINAL,
@@ -44,7 +44,7 @@ def main():
     parser.add_argument("--tui", "--interactive", dest="tui", action="store_true",
                          help="Open the reusable paste-ready viewer with Vim or arrow navigation.")
     parser.add_argument("--vim", action="store_true",
-                         help="Open a read-only native Vim/Neovim stress viewer.")
+                         help="Open the reusable native Neovim/Vim stress viewer.")
     args = parser.parse_args()
 
     if args.tui and args.vim:
@@ -64,11 +64,9 @@ def main():
                 text = f.read()
         else:
             is_terminal = getattr(sys.stdin, "isatty", lambda: False)()
-            if is_terminal:
-                parser.error("--vim requires an input file or piped text")
-            text = sys.stdin.read()
-        if not text:
-            parser.error("--vim requires non-empty input")
+            # Keep terminal stdin attached to the editor so bracketed paste
+            # and native key handling remain available in a blank viewer.
+            text = "" if is_terminal else sys.stdin.read()
 
         from stressmark.vim import EditorUnavailableError, run_vim_viewer
 
