@@ -9,6 +9,7 @@ Usage:
     stressmark transcript.txt --format pdf -o out.pdf
     stressmark transcript.txt --format json -o out.json
     stressmark transcript.txt --tui
+    stressmark transcript.txt --vim
     stressmark transcript.txt --explain
     stressmark transcript.txt --flag-heteronyms
 """
@@ -26,7 +27,11 @@ def main():
         description="Mark primary/secondary/unstressed syllables in English text, "
                     "with sentence-aware nuclear stress and repeat backgrounding.",
     )
-    parser.add_argument("input", nargs="?", help="Input text file. Omit to read from stdin.")
+    parser.add_argument(
+        "input",
+        nargs="?",
+        help="Input text file. Omit to read stdin, or start blank in --tui.",
+    )
     parser.add_argument("-o", "--output", help="Write output to this file instead of stdout.")
     parser.add_argument("--format", type=OutputFormat, choices=tuple(OutputFormat), default=OutputFormat.TERMINAL,
                          help="Output format (default: terminal).")
@@ -37,15 +42,68 @@ def main():
     parser.add_argument("--nuclear-only", action="store_true",
                          help="Only highlight the nuclear (focus) word per clause; demote all other content words to secondary/unstressed.")
     parser.add_argument("--tui", "--interactive", dest="tui", action="store_true",
-                         help="Browse the terminal output interactively with Vim or arrow keys.")
+                         help="Open the reusable paste-ready viewer with Vim or arrow navigation.")
+    parser.add_argument("--vim", action="store_true",
+                         help="Open a read-only native Vim/Neovim stress viewer.")
     args = parser.parse_args()
 
-    if args.tui and not args.input:
-        parser.error("--tui requires an input file because stdin is used for navigation")
+    if args.tui and args.vim:
+        parser.error("--tui and --vim are mutually exclusive")
     if args.tui and args.output:
         parser.error("--tui cannot be combined with --output")
     if args.tui and args.format != OutputFormat.TERMINAL:
         parser.error("--tui cannot be combined with a non-terminal --format")
+    if args.vim and args.output:
+        parser.error("--vim cannot be combined with --output")
+    if args.vim and args.format != OutputFormat.TERMINAL:
+        parser.error("--vim cannot be combined with a non-terminal --format")
+
+    if args.vim:
+        if args.input:
+            with open(args.input, "r", encoding="utf-8") as f:
+                text = f.read()
+        else:
+            is_terminal = getattr(sys.stdin, "isatty", lambda: False)()
+            if is_terminal:
+                parser.error("--vim requires an input file or piped text")
+            text = sys.stdin.read()
+        if not text:
+            parser.error("--vim requires non-empty input")
+
+        from stressmark.vim import EditorUnavailableError, run_vim_viewer
+
+        try:
+            return_code = run_vim_viewer(
+                text,
+                nuclear_only=args.nuclear_only,
+                show_rules=args.explain,
+                flag_heteronyms=args.flag_heteronyms,
+                source_name=args.input,
+            )
+        except EditorUnavailableError as error:
+            parser.error(str(error))
+        if return_code:
+            raise SystemExit(return_code)
+        return
+
+    if args.tui:
+        if args.input:
+            with open(args.input, "r", encoding="utf-8") as f:
+                text = f.read()
+        else:
+            # Do not consume stdin: the running terminal must remain available
+            # for navigation keys and bracketed-paste events.
+            text = ""
+        from stressmark.tui import run_tui
+
+        run_tui(
+            text,
+            nuclear_only=args.nuclear_only,
+            show_rules=args.explain,
+            flag_heteronyms=args.flag_heteronyms,
+            source_name=args.input,
+        )
+        return
 
     if args.input:
         with open(args.input, "r", encoding="utf-8") as f:
@@ -54,27 +112,6 @@ def main():
         text = sys.stdin.read()
 
     raw_tokens, results = analyze(text, nuclear_only=args.nuclear_only)
-
-    if args.tui:
-        # The main pane obeys --nuclear-only. The detail pane deliberately
-        # receives an ordinary analysis so it can always reveal the selected
-        # word's underlying lexical stress, including a demoted primary.
-        lexical_results = results
-        if args.nuclear_only:
-            lexical_tokens, lexical_results = analyze(text, nuclear_only=False)
-            if lexical_tokens != raw_tokens:
-                raise RuntimeError("TUI analyses produced different token streams")
-        from stressmark.tui import run_tui
-
-        run_tui(
-            raw_tokens,
-            results,
-            lexical_results,
-            show_rules=args.explain,
-            flag_heteronyms=args.flag_heteronyms,
-            source_name=args.input,
-        )
-        return
 
     if args.format == OutputFormat.TERMINAL:
         if args.output:

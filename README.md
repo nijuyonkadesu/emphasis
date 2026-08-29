@@ -24,7 +24,10 @@ cat article.txt | stressmark
 stressmark transcript.txt --format pdf -o out.pdf
 stressmark transcript.txt --format html -o out.html
 stressmark transcript.txt --format json -o out.json
+stressmark --tui                            # open an empty paste-ready viewer
 stressmark transcript.txt --tui             # interactively inspect each word
+stressmark transcript.txt --vim             # view with native Vim/Neovim controls
+cat article.txt | stressmark --vim
 stressmark transcript.txt --explain          # show the applicable stress-rule ID
 stressmark transcript.txt --flag-heteronyms  # mark record/object/export-type words
 stressmark transcript.txt --nuclear-only     # retain only the nuclear content peak per phrase
@@ -46,16 +49,32 @@ styled symbol legend shown after normal terminal output is included once at the
 end of every PDF.
 
 Interactive mode uses that same Rich-styled terminal document in a full-screen
-viewer. Run `stressmark transcript.txt --tui` (or `--interactive`), then move
-between words with `h`/`l` or Left/Right and between displayed rows—including
-wrapped rows—with `j`/`k` or Down/Up; `Home` and `End` jump to the first and
-last word, and `q` exits.
+viewer. Run `stressmark --tui` (or `--interactive`) for an empty viewer, or
+provide a text file as the initial document. Paste text anywhere to replace the
+current document and analyze it; `Esc` clears the document so the viewer can be
+reused indefinitely. Move between words with `b`/`w`, `h`/`l`, or Left/Right
+and between displayed rows—including wrapped rows—with `j`/`k` or Down/Up;
+`Home` and `End` jump to the first and last word, and `q` exits. Press `m` to
+open the mode popup: move with `j`/`k` or the arrows, toggle with Space, apply
+with Enter, or cancel with `Esc`.
 The bottom pane shows the selected word's raw lexical stressmark, POS tag, and
 pronunciation-source confidence. Existing display flags such as `--explain`,
-`--flag-heteronyms`, and `--nuclear-only` apply to the main pane. In
+`--flag-heteronyms`, and `--nuclear-only` persist for every document pasted
+into that viewer session. In
 `--nuclear-only` mode, the bottom pane intentionally retains the selected
 word's underlying primary stress so demoted words remain inspectable. TUI mode
-requires a file and cannot be combined with `-o` or a non-terminal `--format`.
+cannot be combined with `-o` or a non-terminal `--format`.
+
+Native editor mode launches the real Vim or Neovim in a read-only temporary
+buffer, so normal motions, searches, marks, mappings, plugins, mouse behavior,
+and scrolling remain native to the editor. Run `stressmark transcript.txt
+--vim`, or pipe text to `stressmark --vim`. The window-local statusline shows
+the word under the cursor, its raw stressmark, POS tag, and pronunciation
+source. Launch flags such as `--nuclear-only`, `--explain`, and
+`--flag-heteronyms` apply to the generated buffer. Stressmark uses a Vim-family
+`$VISUAL`, then `$EDITOR`, and otherwise searches for `nvim`, `vim`, or `vi`.
+The user's normal editor configuration is loaded. This first version is
+intentionally read-only; the original file is never opened for editing.
 
 ## How it works
 
@@ -69,7 +88,7 @@ text → tokenize (NLTK, contraction-aware) → POS-tag (NLTK)
      → focus/contrast/wh + lemma-based given/repeat tiering
      → nuclear-stress assignment per phrase
      → rule-explainer annotation (--explain)
-     → render (terminal / interactive TUI / PDF / HTML / JSON)
+     → render (terminal / interactive TUI / native Vim / PDF / HTML / JSON)
 ```
 
 | Piece | Tool | Why |
@@ -182,6 +201,10 @@ a final answer.
   and theme registries are shared by terminal, PDF, HTML, and TUI output
 - `src/stressmark/tui.py` — interactive Rich/Textual document viewer with
   Vim/arrow word navigation and a raw-stress detail pane
+- `src/stressmark/vim.py` — read-only native Neovim/Vim viewer adapter with
+  shared highlights and cursor-sensitive stress details
+- `src/stressmark/viewer.py` — shared display/lexical analysis for interactive
+  viewers
 - `test_engine.py` — exercises every rule and feature
 - `test_heteronyms.py` — heteronym resolution accuracy test
 - `test_secondary_stress.py` — secondary-stress clash-collapse accuracy test
