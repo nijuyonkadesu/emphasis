@@ -224,6 +224,7 @@ class StressmarkApp(App[None]):
     #document {{
         height: 1fr;
         padding: 1 2;
+        scrollbar-size-vertical: 1;
         scrollbar-color: {render.DARK_THEME.primary};
         scrollbar-color-hover: {render.DARK_THEME.nuclear};
         scrollbar-background: {render.DARK_THEME.chrome};
@@ -232,6 +233,7 @@ class StressmarkApp(App[None]):
     #document-content {{
         width: 1fr;
         height: auto;
+        padding-right: 2;
     }}
 
     #word-detail {{
@@ -312,7 +314,11 @@ class StressmarkApp(App[None]):
         """Replace the current document with one bracketed-paste payload."""
         event.stop()
         if event.text:
-            self._replace_document(event.text, subtitle="pasted text")
+            # Terminal emulators may encode pasted line breaks as CR or CRLF.
+            # Rich/Textual only lays out LF as a new row; leaving CR intact
+            # makes adjacent lines appear concatenated and erases blank rows.
+            text = event.text.replace("\r\n", "\n").replace("\r", "\n")
+            self._replace_document(text, subtitle="pasted text")
 
     def action_previous_word(self) -> None:
         self._move_word(-1)

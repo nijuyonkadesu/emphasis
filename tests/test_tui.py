@@ -7,6 +7,7 @@ from textual import events
 from textual.widgets import SelectionList
 
 from stressmark import cli
+from stressmark.engine import tokenize_with_spans
 from stressmark.tui import ModeScreen, StressmarkApp
 
 
@@ -157,6 +158,52 @@ def test_tui_line_navigation_moves_between_wrapped_visual_rows():
 
             await pilot.press("up")
             assert app.selected_index == 0
+
+    asyncio.run(exercise())
+
+
+def test_tui_document_uses_compact_scrollbar_and_right_content_gutter():
+    app = StressmarkApp("word " * 100, analyzer=_analysis_for_words)
+
+    async def exercise():
+        async with app.run_test(size=(60, 16)):
+            document = app.query_one("#document")
+            content = app.query_one("#document-content")
+
+            assert document.styles.scrollbar_size_vertical == 1
+            assert content.styles.padding.right == 2
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("line_ending", ["\r", "\r\n"])
+def test_tui_paste_normalizes_terminal_line_endings_without_losing_paragraphs(
+    line_ending,
+):
+    expected = "Alpha beta\n\nGamma delta\nEpsilon zeta"
+
+    def analyzer(text, nuclear_only=False):
+        raw_tokens = tokenize_with_spans(text)
+        results = [
+            _result(token, primary=-1 if nuclear_only else 0)
+            if is_word
+            else _separator(token)
+            for is_word, token in raw_tokens
+        ]
+        return raw_tokens, results
+
+    app = StressmarkApp("", analyzer=analyzer)
+
+    async def exercise():
+        async with app.run_test(size=(60, 16)) as pilot:
+            content = app.query_one("#document-content")
+            pasted = expected.replace("\n", line_ending)
+
+            app.post_message(events.Paste(pasted))
+            await pilot.pause()
+
+            assert app.source_text == expected
+            assert content.render().plain == expected.upper()
 
     asyncio.run(exercise())
 
