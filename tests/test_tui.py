@@ -162,6 +162,51 @@ def test_tui_line_navigation_moves_between_wrapped_visual_rows():
     asyncio.run(exercise())
 
 
+def test_tui_mouse_click_selects_word_under_cursor():
+    words = ["zero", "one", "two", "three", "four", "five"]
+    raw_tokens = []
+    results = []
+    for index, word in enumerate(words):
+        if index:
+            raw_tokens.append((False, " "))
+            results.append(_separator(" "))
+        raw_tokens.append((True, word))
+        results.append(_result(word))
+
+    app = StressmarkApp(
+        " ".join(words),
+        analyzer=lambda _text, **_options: (raw_tokens, results),
+    )
+
+    async def exercise():
+        async with app.run_test(size=(60, 16)) as pilot:
+            await pilot.pause()
+
+            def word_at(sx, sy):
+                link = app.screen.get_style_at(sx, sy).link
+                return int(link.removeprefix("stressmark-word:")) if link else None
+
+            # One row, unchanged selection. Click "two" (screen x=11..13).
+            assert word_at(12, 2) == 2
+            await pilot.click(offset=(12, 2))
+            await pilot.pause()
+            assert app.selected_index == 2
+
+            # Click "five" (screen x=26..29).
+            assert word_at(28, 2) == 5
+            await pilot.click(offset=(28, 2))
+            await pilot.pause()
+            assert app.selected_index == 5
+
+            # Clicking a blank cell leaves the selection untouched.
+            assert word_at(40, 8) is None
+            await pilot.click(offset=(40, 8))
+            await pilot.pause()
+            assert app.selected_index == 5
+
+    asyncio.run(exercise())
+
+
 def test_tui_document_uses_compact_scrollbar_and_right_content_gutter():
     app = StressmarkApp("word " * 100, analyzer=_analysis_for_words)
 

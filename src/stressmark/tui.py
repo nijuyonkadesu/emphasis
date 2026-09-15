@@ -262,6 +262,9 @@ class StressmarkApp(App[None]):
         Binding("q", "quit", "q quit", show=True),
     ]
 
+    _SCROLL_MARGIN = 8
+    """Lines from viewport edge before scrolling is triggered."""
+
     _SELECTION_STYLE = RichStyle(
         color="white",
         bgcolor=render.DARK_THEME.selection,
@@ -319,6 +322,17 @@ class StressmarkApp(App[None]):
             # makes adjacent lines appear concatenated and erases blank rows.
             text = event.text.replace("\r\n", "\n").replace("\r", "\n")
             self._replace_document(text, subtitle="pasted text")
+
+    def on_click(self, event: events.Click) -> None:
+        """Select a word when clicked in the document pane."""
+        style = event.style
+        if not (style and style.link and style.link.startswith(_WORD_LINK_PREFIX)):
+            return
+        word_index = int(style.link.removeprefix(_WORD_LINK_PREFIX))
+        if 0 <= word_index < len(self.word_ranges) and word_index != self.selected_index:
+            self.selected_index = word_index
+            self._preferred_column = None
+            self._refresh_selection()
 
     def action_previous_word(self) -> None:
         self._move_word(-1)
@@ -415,6 +429,11 @@ class StressmarkApp(App[None]):
             self.flag_heteronyms,
             word_ranges=word_ranges,
         )
+        # Tag each word with a link so mouse clicks can select it.
+        for word_index, (_, start, end) in enumerate(word_ranges):
+            base_text.stylize(
+                RichStyle(link=f"{_WORD_LINK_PREFIX}{word_index}"), start, end
+            )
 
         self.source_text = text
         self.raw_tokens = raw_tokens
@@ -487,6 +506,34 @@ class StressmarkApp(App[None]):
             )
         return self._word_location_cache[width]
 
+    def _get_viewport_height(self) -> int:
+        """Return the visible row count of the scroll container."""
+        document = self.query_one("#document", VerticalScroll)
+        return max(document.content_region.height, 1)
+
+    def _get_scroll_target(self, display_row: int) -> int:
+        """Compute scroll_y so the cursor stays within SCROLL_MARGIN of edges."""
+        document = self.query_one("#document", VerticalScroll)
+        viewport_height = self._get_viewport_height()
+        current_y = document.scroll_y
+        max_scroll = max(document.max_scroll_y, 0)
+
+        # Content fits entirely in the viewport — no scrolling needed.
+        if max_scroll == 0:
+            return 0
+
+        margin = min(self._SCROLL_MARGIN, viewport_height // 2)
+
+        top_edge = current_y + margin
+        bottom_edge = current_y + viewport_height - margin
+
+        if display_row < top_edge:
+            return max(0, min(display_row - margin, max_scroll))
+        if display_row > bottom_edge:
+            return max(0, min(display_row - viewport_height + margin, max_scroll))
+
+        return current_y
+
     def _refresh_selection(self) -> None:
         document = self.query_one("#document", VerticalScroll)
         content = self.query_one("#document-content", Static)
@@ -520,7 +567,9 @@ class StressmarkApp(App[None]):
 
         word_locations = self._get_word_locations(content)
         display_row = word_locations[self.selected_index].row
-        document.scroll_to(y=max(0, display_row - 2), immediate=True, force=True)
+        document.scroll_to(
+            y=self._get_scroll_target(display_row), immediate=True, force=True
+        )
 
 
 def run_tui(
